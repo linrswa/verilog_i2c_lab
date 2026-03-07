@@ -24,6 +24,9 @@ import {
   ScanNode,
   DelayNode,
 } from './components/nodes'
+import { serializeFlow } from './lib/serialize'
+import { runSimulation } from './lib/api'
+import type { SimulationResult } from './lib/api'
 
 // Register all custom node types — passed to <ReactFlow nodeTypes={...}>
 const nodeTypes: NodeTypes = {
@@ -58,6 +61,15 @@ const defaultEdgeOptions = {
   type: 'smoothstep',
   markerEnd: { type: MarkerType.ArrowClosed },
 } as const
+
+/**
+ * Returns true when the canvas has at least one connected chain — meaning there
+ * exists at least one edge that joins two nodes.  A lone unconnected node does
+ * not qualify.
+ */
+function hasConnectedChain(edges: Edge[]): boolean {
+  return edges.length > 0
+}
 
 // FlowCanvas is a child of ReactFlowProvider so it can safely call useReactFlow()
 function FlowCanvas({
@@ -132,6 +144,9 @@ function FlowCanvas({
 export default function App() {
   const [nodes, setNodes] = useState<Node[]>([])
   const [edges, setEdges] = useState<Edge[]>([])
+  const [isRunning, setIsRunning] = useState(false)
+  const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null)
+  const [runError, setRunError] = useState<string | null>(null)
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
@@ -162,18 +177,48 @@ export default function App() {
     [],
   )
 
-  // Run is always disabled in this story; wired up in US-007
-  const isRunDisabled = true
-  const isRunning = false
+  // Run button is enabled only when the canvas has at least one connected chain
+  const isRunDisabled = !hasConnectedChain(edges) || isRunning
 
-  function handleRun() {
-    // Placeholder — implemented in US-007
+  async function handleRun() {
+    if (isRunDisabled) return
+
+    setIsRunning(true)
+    setRunError(null)
+
+    try {
+      const steps = serializeFlow(nodes, edges)
+      const result = await runSimulation(steps)
+      setSimulationResult(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An unknown error occurred'
+      setRunError(message)
+    } finally {
+      setIsRunning(false)
+    }
   }
 
   return (
-    // Full viewport column: toolbar / body / result panel
+    // Full viewport column: toolbar / error banner / body / result panel
     <div className="flex flex-col w-screen h-screen overflow-hidden bg-gray-100">
       <Toolbar onRun={handleRun} isRunDisabled={isRunDisabled} isRunning={isRunning} />
+
+      {/* Inline error banner — shown below toolbar when a run fails */}
+      {runError !== null && (
+        <div
+          role="alert"
+          className="flex items-center gap-3 px-4 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700"
+        >
+          <span className="flex-1">{runError}</span>
+          <button
+            onClick={() => setRunError(null)}
+            aria-label="Dismiss error"
+            className="text-red-400 hover:text-red-600 font-bold leading-none"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Main body: sidebar + canvas */}
       <div className="flex flex-row flex-1 overflow-hidden">
@@ -191,7 +236,7 @@ export default function App() {
         </ReactFlowProvider>
       </div>
 
-      <ResultPanel />
+      <ResultPanel result={simulationResult} />
     </div>
   )
 }
