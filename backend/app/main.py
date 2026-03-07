@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.simulation import router as simulation_router
+from app.routes.templates import router as templates_router
 
 
 @asynccontextmanager
@@ -32,6 +33,7 @@ app.add_middleware(
 )
 
 app.include_router(simulation_router, prefix="/api")
+app.include_router(templates_router, prefix="/api")
 
 
 @app.get("/api/health")
