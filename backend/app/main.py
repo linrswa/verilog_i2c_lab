@@ -7,13 +7,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.simulation import router as simulation_router
+from app.services.waveform import start_cleanup_task
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    # Startup: nothing to initialise yet — later stories add VCD cleanup here.
+    # Startup: launch the background VCD TTL cleanup task.
+    cleanup_task = start_cleanup_task()
     yield
-    # Shutdown: nothing to tear down yet.
+    # Shutdown: cancel the cleanup task cleanly.
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except Exception:
+        pass
 
 
 app = FastAPI(
