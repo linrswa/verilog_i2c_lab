@@ -494,6 +494,7 @@ def run_simulation(
     steps_json: str | None = None,
     result_json_path: str | None = None,
     build_dir: str | None = None,
+    skip_build: bool = False,
 ) -> None:
     """Compile the RTL and run the cocotb simulation using the Icarus runner.
 
@@ -517,6 +518,11 @@ def run_simulation(
     build_dir:
         Directory for Icarus build artefacts.  Defaults to a ``sim_build``
         sub-directory next to this file.
+    skip_build:
+        When ``True``, skip the RTL compilation step and reuse the existing
+        ``sim_build/`` binary.  Set by the backend when the build cache is
+        warm and no RTL sources have changed since the last compile.
+        Defaults to ``False`` (always compile).
     """
     runner = get_runner("icarus")
 
@@ -525,12 +531,14 @@ def run_simulation(
         pathlib.Path(build_dir) if build_dir else _SIM_DIR / "sim_build"
     )
 
-    # Compile the RTL.
+    # Compile the RTL unless the caller indicates the cache is still valid.
+    # When skip_build is True we pass always=False so cocotb skips the
+    # compilation step and reuses the existing sim_build/ binary.
     runner.build(
         verilog_sources=[str(s) for s in _VERILOG_SOURCES],
         hdl_toplevel=_TOPLEVEL,
         build_dir=str(resolved_build_dir),
-        always=True,
+        always=not skip_build,
     )
 
     # Build the environment for the test coroutine.
@@ -591,6 +599,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "Directory in which VCD waveform files are placed.  "
             "Defaults to the current working directory."
+        ),
+    )
+    parser.add_argument(
+        "--skip-build",
+        action="store_true",
+        default=False,
+        dest="skip_build",
+        help=(
+            "Skip the RTL compilation step and reuse the existing sim_build/ "
+            "binary.  Only safe when no RTL source files have changed since "
+            "the last compile."
         ),
     )
     return parser
@@ -662,6 +681,7 @@ def main(argv: list[str] | None = None) -> int:
             vcd_dir=args.vcd_dir,
             steps_json=steps_json_str,
             result_json_path=result_tmp_path,
+            skip_build=args.skip_build,
         )
     except SystemExit as exc:
         # cocotb / the runner may call sys.exit() on failure.

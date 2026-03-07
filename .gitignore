@@ -1,0 +1,12 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Simulation build artifacts
+sim_build/
+*.vcd
+
+# OS
+.DS_Store

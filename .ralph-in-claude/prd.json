@@ -1,243 +1,213 @@
 {
-  "project": "I2C Demo Platform",
-  "branchName": "ralph/phase1-cocotb-layer",
+  "project": "I2C Demo — Phase 2 FastAPI Backend",
+  "branchName": "ralph/phase2-fastapi-backend",
   "baseBranch": "main",
-  "sourcePrd": ".ralph-in-claude/tasks/prd-phase1-cocotb-layer.md",
-  "description": "Phase 1 - Verilog RTL modification (256-byte slave) + cocotb transaction driver + JSON test runner with CLI",
-  "conflictStrategy": "conservative",
+  "sourcePrd": ".ralph-in-claude/tasks/prd-phase2-fastapi-backend.md",
+  "description": "Wrap the Phase 1 cocotb simulation layer in a FastAPI web service with REST API endpoints for running simulations, serving test templates, and downloading VCD waveforms.",
+  "conflictStrategy": "optimistic",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Slave Register File 擴展至 256 bytes",
-      "description": "As a developer, I want the I2C slave to have a 256-byte register file with auto-increment wrap so that it behaves like a simplified EEPROM storage.",
+      "title": "FastAPI Project Skeleton",
+      "description": "As a developer, I want a properly structured FastAPI project with dependencies so that I can start building API endpoints.",
       "acceptanceCriteria": [
-        "i2c_slave.v 的 register_file 改為 reg [7:0] register_file [0:255]",
-        "reg_addr 改為 8-bit，write 時 auto-increment 並 wrap 回 0（addr 255 → 0）",
-        "read 時同樣 auto-increment wrap",
-        "不模擬 page write boundary 或 write cycle delay（簡化版）",
-        "原有的 I2C protocol 行為（ACK/NACK、start/stop detection）不受影響",
-        "使用 iverilog 編譯無 error/warning"
+        "backend/app/main.py creates a FastAPI app with CORS middleware (allow all origins for dev)",
+        "backend/requirements.txt includes fastapi, uvicorn, and any other dependencies",
+        "GET /api/health returns {\"status\": \"ok\"}",
+        "App can be started with `uvicorn app.main:app` from the backend/ directory",
+        "Typecheck passes"
       ],
       "dependsOn": [],
       "sharedFiles": [
-        { "file": "backend/sim/rtl/i2c_slave.v", "conflictType": "structural-modify", "reason": "modifies register file size and address logic" }
+        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Created here, later stories register routes/lifespan" }
       ],
       "priority": 1,
       "passes": true,
-      "notes": "修改 backend/sim/rtl/i2c_slave.v。將 register_file 從現有大小擴展到 [0:255]，reg_addr 改為 8-bit。auto-increment wrap 邏輯：addr 255 之後 wrap 回 0。保持所有現有 I2C protocol 行為不變。"
+      "notes": "File structure: backend/app/main.py (FastAPI app, CORS, lifespan), backend/app/routes/simulation.py (route handlers), backend/app/services/ (runner.py, waveform.py). CORS should allow all origins for dev."
     },
     {
       "id": "US-002",
-      "title": "i2c_top.v 適配更新",
-      "description": "As a developer, I want i2c_top.v to correctly instantiate the updated slave module so that the system-level simulation works with 256-byte storage.",
+      "title": "Simulation Service — Core Execution",
+      "description": "As a backend service, I want to invoke the Phase 1 test runner as a subprocess so that API requests trigger real simulations.",
       "acceptanceCriteria": [
-        "i2c_top.v 正確連接更新後的 i2c_slave",
-        "cocotb wrapper (i2c_system_wrapper.v) 與 i2c_top.v 相容",
-        "整個 RTL hierarchy 可用 iverilog 成功編譯"
+        "backend/app/services/runner.py contains a SimulationService class",
+        "run_simulation(steps: list[dict]) method executes test_runner.py via asyncio.create_subprocess_exec",
+        "Steps are passed via a temp JSON file (not env var)",
+        "Result JSON is read back from the temp file written by test_runner",
+        "Returns a structured dict with passed, steps, register_dump, vcd_path",
+        "Simulation timeout of 60 seconds (configurable); raises TimeoutError on expiry",
+        "Temp files (input JSON, result JSON) are cleaned up after execution",
+        "Typecheck passes"
       ],
       "dependsOn": ["US-001"],
       "sharedFiles": [
-        { "file": "backend/sim/rtl/i2c_top.v", "conflictType": "structural-modify", "reason": "may need port changes for updated slave" },
-        { "file": "backend/sim/tb/i2c_system_wrapper.v", "conflictType": "structural-modify", "reason": "may need wrapper updates" }
+        { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Created here, US-003 and US-004 modify it" }
       ],
       "priority": 2,
       "passes": true,
-      "notes": "檢查 i2c_top.v 是否需要因 slave 介面變更而修改。確認 i2c_system_wrapper.v 暴露正確的信號給 cocotb。用 iverilog 編譯驗證：iverilog -o test backend/sim/rtl/*.v backend/sim/tb/i2c_system_wrapper.v"
+      "notes": "Use asyncio.create_subprocess_exec (not subprocess.run) to avoid blocking the event loop. Path resolution: SimulationService needs path to test_runner.py and RTL sources relative to backend/sim/ directory."
     },
     {
       "id": "US-003",
-      "title": "I2CDriver 基礎框架",
-      "description": "As a developer, I want a Python class I2CDriver that wraps cocotb DUT signals so that I can perform I2C operations at transaction level without manually toggling signals.",
+      "title": "Build Caching (Hybrid Compile)",
+      "description": "As a backend service, I want to cache the compiled Verilog binary and only recompile when RTL files change, so that repeated simulations are faster.",
       "acceptanceCriteria": [
-        "建立 backend/sim/i2c_driver.py",
-        "I2CDriver.__init__(self, dut) 正確取得 DUT reference",
-        "async def reset(self) 執行系統 reset 並等待穩定",
-        "async def delay(self, cycles) 等待指定 clock cycles",
-        "所有 async method 使用 cocotb await 語法",
-        "Python syntax check passes (python -m py_compile)"
+        "SimulationService checks mtime of all RTL source files against a stored timestamp",
+        "If no RTL file has changed since last compile, skip the compile step and reuse existing sim_build/ binary",
+        "If any RTL file changed, trigger a fresh compile before running",
+        "First run always compiles",
+        "Cache state is stored in memory (no persistence file needed)",
+        "Typecheck passes"
       ],
       "dependsOn": ["US-002"],
       "sharedFiles": [
-        { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "main driver file, multiple stories add methods" }
+        { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Adds caching logic to SimulationService" }
       ],
       "priority": 3,
       "passes": true,
-      "notes": "建立 backend/sim/i2c_driver.py。需要先讀取現有的 i2c_master.v 了解控制信號介面（cmd, data_in, addr, busy 等 port）。Driver 透過設定 master 的控制信號來驅動 I2C transaction。使用 cocotb.triggers 的 RisingEdge, Timer 等。參考現有 cocotb 測試檔案（test_i2c_system.py）了解信號操作方式。"
+      "notes": "Cache state in memory — recompile on server restart is acceptable. Check mtime of all .v files in RTL source directory."
     },
     {
       "id": "US-004",
-      "title": "I2CDriver Write 操作",
-      "description": "As a developer, I want write_bytes(addr, reg, data) to write N bytes to the I2C slave so that I can programmatically store data.",
+      "title": "Request Queue (Single Concurrency)",
+      "description": "As a backend service, I want to serialize simulation requests so that only one simulation runs at a time, preventing resource contention.",
       "acceptanceCriteria": [
-        "async def write_bytes(self, addr, reg, data) 完成實作",
-        "正確設定 slave address、register pointer、data bytes",
-        "透過 DUT 信號觸發 I2C master 執行 write transaction",
-        "回傳是否收到 ACK（偵測 NACK error）",
-        "支援寫入 1-256 bytes",
-        "Python syntax check passes (python -m py_compile)"
+        "An asyncio.Lock guards the simulation execution path",
+        "Concurrent requests wait in FIFO order (asyncio.Lock default behavior)",
+        "If a request waits longer than 120 seconds for the lock, it returns HTTP 503 with a clear message",
+        "The lock is released even if the simulation fails or times out",
+        "Typecheck passes"
       ],
       "dependsOn": ["US-003"],
       "sharedFiles": [
-        { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "adds write_bytes method" }
+        { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Adds asyncio.Lock to SimulationService" }
       ],
       "priority": 4,
       "passes": true,
-      "notes": "在 i2c_driver.py 中新增 write_bytes 方法。I2C write transaction 流程：設定 slave addr → 發送 reg pointer byte → 逐一發送 data bytes。需等待 master busy 信號降低後才能送下一個 byte。"
+      "notes": "Use asyncio.wait_for with 120s timeout on lock acquisition. Ensure lock release in finally block."
     },
     {
       "id": "US-005",
-      "title": "I2CDriver Read 操作",
-      "description": "As a developer, I want read_bytes(addr, reg, n) to read N bytes from the I2C slave so that I can verify stored data.",
+      "title": "POST /api/run — Execute Simulation",
+      "description": "As an API consumer, I want to POST a JSON test sequence and receive the simulation results so that I can validate I2C behavior.",
       "acceptanceCriteria": [
-        "async def read_bytes(self, addr, reg, n) -> list[int] 完成實作",
-        "先寫入 register pointer（write transaction），再發 read transaction 讀回 data",
-        "正確處理 repeated start 或 stop-start 序列",
-        "回傳讀取的 byte list",
-        "支援讀取 1-256 bytes",
-        "Python syntax check passes (python -m py_compile)"
+        "POST /api/run accepts a JSON body with a steps array (same format as Phase 1 JSON files)",
+        "Request body is validated: steps must be a non-empty list, each step must have a valid op",
+        "On success, returns HTTP 200 with the full result dict (passed, steps, register_dump, waveform_id)",
+        "waveform_id is a UUID string that can be used with GET /api/waveform/:id",
+        "On validation error, returns HTTP 422 with a descriptive error message",
+        "On simulation failure (timeout, crash), returns HTTP 500 with error details",
+        "On queue full/timeout, returns HTTP 503",
+        "Typecheck passes"
       ],
-      "dependsOn": ["US-004"],
+      "dependsOn": ["US-004", "US-009"],
       "sharedFiles": [
-        { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "adds read_bytes method" }
+        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register simulation run route" },
+        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add POST /api/run endpoint" }
       ],
       "priority": 5,
       "passes": true,
-      "notes": "在 i2c_driver.py 中新增 read_bytes 方法。I2C read 流程：先 write transaction 送 slave addr + reg pointer，再 read transaction 送 slave addr (read mode) 讀回 n bytes。參考現有 test_i2c_system.py 的讀取邏輯。"
+      "notes": "Wire together SimulationService (with queue lock) and WaveformService. After simulation, copy VCD to waveform storage with UUID name. Return waveform_id in response."
     },
     {
       "id": "US-006",
-      "title": "I2CDriver Scan 與 Register Dump",
-      "description": "As a developer, I want scan(addr) and get_register_dump() utility methods for debugging.",
+      "title": "GET /api/templates — List Test Templates",
+      "description": "As an API consumer, I want to list available test templates so that I can quickly run pre-built test sequences.",
       "acceptanceCriteria": [
-        "async def scan(self, addr) -> bool 送出 write transaction 檢查 ACK",
-        "回傳 True 表示該 address 有 slave 回應，False 表示 NACK",
-        "async def get_register_dump(self) -> dict 讀取 slave 內部 register_file 狀態",
-        "register dump 透過直接存取 DUT hierarchy (dut.slave.register_file) 取得",
-        "Python syntax check passes (python -m py_compile)"
+        "GET /api/templates returns a JSON array of template objects",
+        "Each template object has: id (filename without extension), name (from JSON metadata or filename), description (from JSON metadata or empty), step_count (number of steps)",
+        "Templates are loaded from backend/sim/templates/*.json (the Phase 1 template files)",
+        "Response is cached in memory (reloaded on restart)",
+        "Typecheck passes"
       ],
-      "dependsOn": ["US-004"],
+      "dependsOn": ["US-001"],
       "sharedFiles": [
-        { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "adds scan and get_register_dump methods" }
+        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register template routes" },
+        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add template list endpoint" }
       ],
-      "priority": 5,
+      "priority": 2,
       "passes": true,
-      "notes": "在 i2c_driver.py 中新增 scan 和 get_register_dump 方法。scan 透過發送一個 write transaction 並檢查 ACK/NACK 來偵測 slave 是否存在。get_register_dump 直接透過 cocotb DUT hierarchy 存取 slave 的 register_file array。"
+      "notes": "Load templates from backend/sim/templates/*.json. Cache the template list in memory on first access."
     },
     {
       "id": "US-007",
-      "title": "JSON Test Sequence Parser",
-      "description": "As a developer, I want a test runner that parses JSON test sequences into executable cocotb operations so that tests can be defined declaratively.",
+      "title": "GET /api/templates/:id — Get Template Detail",
+      "description": "As an API consumer, I want to fetch a specific template's full content so that I can inspect or submit it to /api/run.",
       "acceptanceCriteria": [
-        "建立 backend/sim/test_runner.py",
-        "支援以下 operation types: reset, write_bytes, read_bytes, scan, delay",
-        "正確解析 hex string（如 0x50）為 integer",
-        "expect 欄位為 optional，有提供時進行比對",
-        "無效的 operation type 回傳明確錯誤訊息",
-        "Python syntax check passes (python -m py_compile)"
+        "GET /api/templates/{template_id} returns the full JSON content of the template file",
+        "Returns HTTP 404 if the template ID does not match any file",
+        "Response includes the steps array ready to be submitted to POST /api/run",
+        "Typecheck passes"
       ],
-      "dependsOn": ["US-005", "US-006"],
+      "dependsOn": ["US-006"],
       "sharedFiles": [
-        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "main test runner file" }
+        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add template detail endpoint" }
       ],
-      "priority": 6,
+      "priority": 3,
       "passes": true,
-      "notes": "建立 backend/sim/test_runner.py。JSON input 格式參考 PRD 中的範例。每個 step 是一個 dict，包含 op 欄位和對應參數。hex string 用 int(val, 16) 解析。import I2CDriver 來執行實際操作。"
+      "notes": ""
     },
     {
       "id": "US-008",
-      "title": "Test Runner 執行與結果輸出",
-      "description": "As a developer, I want the test runner to execute a parsed test sequence and produce structured JSON results so that I can programmatically check pass/fail.",
+      "title": "GET /api/waveform/:id — Download VCD",
+      "description": "As an API consumer, I want to download the VCD waveform file from a simulation run so that I can view it in a waveform viewer.",
       "acceptanceCriteria": [
-        "執行每個 step 並記錄 status (ok / error)",
-        "read_bytes 結果包含 data 欄位（hex string list）",
-        "有 expect 時包含 match 欄位（boolean）",
-        "scan 結果包含 found 欄位",
-        "最終結果包含 passed（全部 step 通過）、steps、register_dump、vcd_path",
-        "輸出格式符合 PRD 中定義的 JSON schema",
-        "Python syntax check passes (python -m py_compile)"
+        "GET /api/waveform/{waveform_id} returns the VCD file as application/octet-stream with Content-Disposition: attachment",
+        "Returns HTTP 404 if the waveform ID does not exist or has expired",
+        "VCD files are stored in a temp directory with UUID-based naming",
+        "Typecheck passes"
       ],
-      "dependsOn": ["US-007"],
+      "dependsOn": ["US-009"],
       "sharedFiles": [
-        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "adds execution and result logic" }
+        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register waveform route" },
+        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add waveform download endpoint" }
       ],
-      "priority": 7,
+      "priority": 5,
       "passes": true,
-      "notes": "在 test_runner.py 中實作執行邏輯。每個 step 執行後記錄結果到 steps list。最後呼叫 get_register_dump() 取得 register 狀態。passed = 所有 step 的 match 都為 True（或沒有 expect）。"
+      "notes": "Use FastAPI FileResponse with media_type='application/octet-stream'. Validate UUID format to prevent path traversal."
     },
     {
       "id": "US-009",
-      "title": "cocotb Runner Integration",
-      "description": "As a developer, I want test_runner.py to use cocotb's Python runner API to compile and execute simulation so that no Makefile is needed.",
+      "title": "VCD Storage & TTL Cleanup",
+      "description": "As a backend service, I want VCD files to be automatically cleaned up after a TTL period so that disk space is not wasted.",
       "acceptanceCriteria": [
-        "使用 cocotb.runner.get_runner('icarus') 建立 runner",
-        "正確指定 RTL source files（i2c_master.v, i2c_slave.v, i2c_top.v）和 wrapper",
-        "產生 VCD waveform 檔案",
-        "simulation 完成後可取得結果",
-        "Python syntax check passes (python -m py_compile)"
+        "VCD files are stored in a configurable temp directory (default: system temp dir / i2c-sim-waveforms/)",
+        "Each simulation run creates a VCD file named {uuid}.vcd",
+        "A background task runs every 5 minutes to delete VCD files older than 30 minutes",
+        "The background task starts with the FastAPI app lifecycle (startup event)",
+        "TTL is configurable via environment variable VCD_TTL_MINUTES (default: 30)",
+        "Typecheck passes"
       ],
-      "dependsOn": ["US-008"],
+      "dependsOn": ["US-001"],
       "sharedFiles": [
-        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "adds cocotb runner integration" }
+        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register lifespan/startup event for cleanup task" }
       ],
-      "priority": 8,
+      "priority": 2,
       "passes": true,
-      "notes": "使用 cocotb.runner Python API。範例：runner = get_runner('icarus'); runner.build(verilog_sources=[...], toplevel='i2c_system_wrapper'); runner.test(toplevel='i2c_system_wrapper', py_module='test_runner')。需要建立一個 cocotb test function 作為 entry point，在其中呼叫 test runner 邏輯。"
+      "notes": "Create backend/app/services/waveform.py for VCD storage and cleanup logic. Use FastAPI lifespan context manager for the background cleanup task."
     },
     {
       "id": "US-010",
-      "title": "CLI Entry Point",
-      "description": "As a developer, I want a CLI command python test_runner.py --input test.json to run tests from terminal so that I can validate the system without writing Python code.",
+      "title": "End-to-End Integration Test",
+      "description": "As a developer, I want integration tests that verify the full API flow so that I can confidently deploy.",
       "acceptanceCriteria": [
-        "使用 argparse 提供 --input 參數接受 JSON 檔案路徑",
-        "可選 --output 參數指定結果輸出路徑（預設 stdout）",
-        "可選 --vcd-dir 參數指定 VCD 輸出目錄",
-        "執行完畢印出 JSON 結果",
-        "非零 exit code 表示測試失敗或執行錯誤",
-        "Python syntax check passes (python -m py_compile)"
+        "Test file at backend/tests/test_api.py using httpx.AsyncClient with FastAPI's TestClient",
+        "Test: POST /api/run with a simple write+read sequence returns passed: true",
+        "Test: POST /api/run with invalid steps returns HTTP 422",
+        "Test: GET /api/templates returns a non-empty list",
+        "Test: GET /api/templates/{id} returns valid template content",
+        "Test: GET /api/waveform/{id} with valid ID returns a VCD file",
+        "Test: GET /api/waveform/{id} with invalid ID returns 404",
+        "Test: GET /api/health returns 200",
+        "Tests can run without iverilog installed (mock the subprocess call)",
+        "Tests pass",
+        "Typecheck passes"
       ],
-      "dependsOn": ["US-009"],
-      "sharedFiles": [
-        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "adds CLI entry point" }
-      ],
-      "priority": 9,
-      "passes": true,
-      "notes": "在 test_runner.py 中加入 if __name__ == '__main__' 區塊。使用 argparse 解析 --input, --output, --vcd-dir 參數。讀取 JSON 檔案後呼叫 cocotb runner 執行 simulation，將結果寫入 output 或 stdout。"
-    },
-    {
-      "id": "US-011",
-      "title": "完整測試組",
-      "description": "As a developer, I want a comprehensive test suite to verify all driver and runner functionality so that I can be confident the system works correctly.",
-      "acceptanceCriteria": [
-        "測試 write + read back 驗證（單 byte 和多 byte）",
-        "測試 address boundary（addr 0 和 addr 255）",
-        "測試 multi-byte burst write/read（連續多 bytes）",
-        "測試 address wrap-around（寫到 addr 255 後 wrap 回 0）",
-        "測試錯誤 address 的 NACK 回應",
-        "測試 scan 功能（存在與不存在的 address）",
-        "所有測試通過"
-      ],
-      "dependsOn": ["US-009"],
+      "dependsOn": ["US-005", "US-007", "US-008"],
       "sharedFiles": [],
-      "priority": 10,
+      "priority": 6,
       "passes": true,
-      "notes": "建立 cocotb test module 執行完整測試。可建立在 backend/sim/tests/test_i2c_cocotb.py 中，使用 @cocotb.test() decorator。每個測試案例使用 I2CDriver 執行操作並驗證結果。"
-    },
-    {
-      "id": "US-012",
-      "title": "範例 JSON 測試檔案",
-      "description": "As a developer, I want 2-3 example JSON test files so that Phase 2 FastAPI integration has ready-made test data.",
-      "acceptanceCriteria": [
-        "backend/sim/templates/basic_write_read.json - 基本 write + read back",
-        "backend/sim/templates/full_test.json - 完整功能測試（所有 op types）",
-        "backend/sim/templates/stress_test.json - boundary + burst + wrap-around 測試",
-        "每個 JSON 檔案格式符合 test runner 的 input schema",
-        "用 CLI 執行每個範例檔案都能通過"
-      ],
-      "dependsOn": ["US-010"],
-      "sharedFiles": [],
-      "priority": 11,
-      "passes": true,
-      "notes": "建立 backend/sim/templates/ 目錄。JSON 格式參考 PRD 中的範例：[{op: 'reset'}, {op: 'write_bytes', addr: '0x50', reg: '0x00', data: ['0xA5']}, ...]。stress_test.json 應包含 addr 0/255 boundary、多 byte burst、wrap-around 測試。"
+      "notes": "Mock asyncio.create_subprocess_exec to avoid needing iverilog/cocotb. Use httpx.AsyncClient for async test support."
     }
   ]
 }
