@@ -1,213 +1,259 @@
 {
-  "project": "I2C Demo — Phase 2 FastAPI Backend",
-  "branchName": "ralph/phase2-fastapi-backend",
+  "project": "I2C Demo — Phase 3 React Flow Frontend",
+  "branchName": "ralph/phase3-react-flow-frontend",
   "baseBranch": "main",
-  "sourcePrd": ".ralph-in-claude/tasks/prd-phase2-fastapi-backend.md",
-  "description": "Wrap the Phase 1 cocotb simulation layer in a FastAPI web service with REST API endpoints for running simulations, serving test templates, and downloading VCD waveforms.",
+  "sourcePrd": ".ralph-in-claude/tasks/prd-phase3-react-flow-frontend.md",
+  "description": "Build a React Flow-based frontend where users drag-and-drop I2C test nodes onto a canvas, connect them to define execution order, serialize the graph to JSON, and run simulations via the Phase 2 FastAPI backend.",
   "conflictStrategy": "optimistic",
   "userStories": [
     {
       "id": "US-001",
-      "title": "FastAPI Project Skeleton",
-      "description": "As a developer, I want a properly structured FastAPI project with dependencies so that I can start building API endpoints.",
+      "title": "Project Setup with Bun + Vite + React + TypeScript",
+      "description": "As a developer, I want a properly configured frontend project so that I can start building components.",
       "acceptanceCriteria": [
-        "backend/app/main.py creates a FastAPI app with CORS middleware (allow all origins for dev)",
-        "backend/requirements.txt includes fastapi, uvicorn, and any other dependencies",
-        "GET /api/health returns {\"status\": \"ok\"}",
-        "App can be started with `uvicorn app.main:app` from the backend/ directory",
+        "frontend/ directory created with Bun + Vite using React + TypeScript template",
+        "Tailwind CSS v4 installed and configured (utility classes work in components)",
+        "React Flow (@xyflow/react) installed as dependency",
+        "bun dev starts the dev server without errors",
+        "bun run build produces a production build without errors",
+        "TypeScript strict mode enabled in tsconfig.json",
         "Typecheck passes"
       ],
       "dependsOn": [],
       "sharedFiles": [
-        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Created here, later stories register routes/lifespan" }
+        { "file": "frontend/package.json", "conflictType": "append-only", "reason": "Created here, later stories may add deps" },
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Created here, US-002 will restructure it" }
       ],
       "priority": 1,
-      "passes": true,
-      "notes": "File structure: backend/app/main.py (FastAPI app, CORS, lifespan), backend/app/routes/simulation.py (route handlers), backend/app/services/ (runner.py, waveform.py). CORS should allow all origins for dev."
+      "passes": false,
+      "notes": "Use `bun create vite frontend --template react-ts`. Install deps: `bun add @xyflow/react`, `bun add -D tailwindcss @tailwindcss/vite`. For Tailwind v4, add the Vite plugin to vite.config.ts and import tailwindcss in the main CSS file."
     },
     {
       "id": "US-002",
-      "title": "Simulation Service — Core Execution",
-      "description": "As a backend service, I want to invoke the Phase 1 test runner as a subprocess so that API requests trigger real simulations.",
+      "title": "Application Shell & Layout",
+      "description": "As a user, I want a structured layout with distinct panels so that I can see all parts of the interface at once.",
       "acceptanceCriteria": [
-        "backend/app/services/runner.py contains a SimulationService class",
-        "run_simulation(steps: list[dict]) method executes test_runner.py via asyncio.create_subprocess_exec",
-        "Steps are passed via a temp JSON file (not env var)",
-        "Result JSON is read back from the temp file written by test_runner",
-        "Returns a structured dict with passed, steps, register_dump, vcd_path",
-        "Simulation timeout of 60 seconds (configurable); raises TimeoutError on expiry",
-        "Temp files (input JSON, result JSON) are cleaned up after execution",
-        "Typecheck passes"
+        "Three-panel layout: left sidebar (node palette ~200px), center (React Flow canvas, flex-grow), bottom (result panel)",
+        "Sidebar displays the 5 node types (Reset, Write, Read, Scan, Delay) as draggable items with labels and color accents",
+        "Result panel is collapsible and starts collapsed (show/hide toggle)",
+        "A top toolbar area with a Run button (disabled state initially)",
+        "Layout fills the full viewport height and width",
+        "Typecheck passes",
+        "Verify in browser: all panels render correctly at 1280x800 minimum"
       ],
       "dependsOn": ["US-001"],
       "sharedFiles": [
-        { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Created here, US-003 and US-004 modify it" }
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Main layout component" }
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "Use asyncio.create_subprocess_exec (not subprocess.run) to avoid blocking the event loop. Path resolution: SimulationService needs path to test_runner.py and RTL sources relative to backend/sim/ directory."
+      "passes": false,
+      "notes": "Create components: Sidebar.tsx, Toolbar.tsx, ResultPanel.tsx. Use flexbox layout: row for sidebar+canvas, column wrapper for toolbar on top and result panel on bottom. Sidebar items should set HTML5 drag data (dataTransfer) with the node type string. React Flow canvas is a placeholder ReactFlow component with empty nodes/edges for now."
     },
     {
       "id": "US-003",
-      "title": "Build Caching (Hybrid Compile)",
-      "description": "As a backend service, I want to cache the compiled Verilog binary and only recompile when RTL files change, so that repeated simulations are faster.",
+      "title": "Custom Node Components",
+      "description": "As a user, I want distinct visual nodes for each I2C operation so that I can identify them on the canvas.",
       "acceptanceCriteria": [
-        "SimulationService checks mtime of all RTL source files against a stored timestamp",
-        "If no RTL file has changed since last compile, skip the compile step and reuse existing sim_build/ binary",
-        "If any RTL file changed, trigger a fresh compile before running",
-        "First run always compiles",
-        "Cache state is stored in memory (no persistence file needed)",
-        "Typecheck passes"
+        "ResetNode — displays 'Reset' label, no editable parameters, one output handle (bottom)",
+        "WriteNode — displays inline fields for address (hex input), register (hex input), data (comma-separated hex bytes input); one input handle (top), one output handle (bottom)",
+        "ReadNode — displays inline fields for address (hex), register (hex), byte count n (number), optional expected data (comma-separated hex); one input handle (top), one output handle (bottom)",
+        "ScanNode — displays inline field for address (hex), optional expected result (true/false select); one input handle (top), one output handle (bottom)",
+        "DelayNode — displays inline field for cycle count (integer input); one input handle (top), one output handle (bottom)",
+        "Each node type has a distinct border/header color for quick visual identification",
+        "Node parameters are editable directly on the node via controlled inputs that update node.data",
+        "Typecheck passes",
+        "Verify in browser: all 5 node types render with correct fields"
       ],
       "dependsOn": ["US-002"],
-      "sharedFiles": [
-        { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Adds caching logic to SimulationService" }
-      ],
+      "sharedFiles": [],
       "priority": 3,
-      "passes": true,
-      "notes": "Cache state in memory — recompile on server restart is acceptable. Check mtime of all .v files in RTL source directory."
+      "passes": false,
+      "notes": "Create files in frontend/src/components/nodes/: ResetNode.tsx, WriteNode.tsx, ReadNode.tsx, ScanNode.tsx, DelayNode.tsx. Register all node types in a nodeTypes map passed to ReactFlow. Use React Flow's Handle component for input/output handles (Position.Top for input, Position.Bottom for output). Store parameters in node.data and use useReactFlow().setNodes to update on input change. Suggested colors: Reset=slate, Write=blue, Read=green, Scan=amber, Delay=purple."
     },
     {
       "id": "US-004",
-      "title": "Request Queue (Single Concurrency)",
-      "description": "As a backend service, I want to serialize simulation requests so that only one simulation runs at a time, preventing resource contention.",
+      "title": "Drag-and-Drop from Sidebar to Canvas",
+      "description": "As a user, I want to drag node types from the sidebar onto the canvas so that I can build test sequences visually.",
       "acceptanceCriteria": [
-        "An asyncio.Lock guards the simulation execution path",
-        "Concurrent requests wait in FIFO order (asyncio.Lock default behavior)",
-        "If a request waits longer than 120 seconds for the lock, it returns HTTP 503 with a clear message",
-        "The lock is released even if the simulation fails or times out",
-        "Typecheck passes"
+        "Dragging a node type from the sidebar and dropping it on the canvas creates a new node instance of that type",
+        "The new node appears at the drop position with default parameter values",
+        "Default values: address=0x50, register=0x00, data=[], n=1, cycles=100",
+        "Multiple instances of the same node type can be added",
+        "Nodes can be repositioned on the canvas after placement",
+        "Typecheck passes",
+        "Verify in browser: drag-and-drop works smoothly"
       ],
       "dependsOn": ["US-003"],
       "sharedFiles": [
-        { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Adds asyncio.Lock to SimulationService" }
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Add onDragOver/onDrop handlers to ReactFlow wrapper" }
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Use asyncio.wait_for with 120s timeout on lock acquisition. Ensure lock release in finally block."
+      "passes": false,
+      "notes": "Implement onDragOver (preventDefault + set dropEffect) and onDrop handlers on the ReactFlow wrapper component. In onDrop: get node type from dataTransfer, use reactFlowInstance.screenToFlowPosition() to convert drop coordinates, create new node with unique ID (e.g., `${type}-${Date.now()}`), add to nodes state. Sidebar items should use onDragStart to set dataTransfer.setData('application/reactflow', nodeType)."
     },
     {
       "id": "US-005",
-      "title": "POST /api/run — Execute Simulation",
-      "description": "As an API consumer, I want to POST a JSON test sequence and receive the simulation results so that I can validate I2C behavior.",
+      "title": "Node Connection & Edge Management",
+      "description": "As a user, I want to connect nodes with edges to define execution order so that I can create sequential test flows.",
       "acceptanceCriteria": [
-        "POST /api/run accepts a JSON body with a steps array (same format as Phase 1 JSON files)",
-        "Request body is validated: steps must be a non-empty list, each step must have a valid op",
-        "On success, returns HTTP 200 with the full result dict (passed, steps, register_dump, waveform_id)",
-        "waveform_id is a UUID string that can be used with GET /api/waveform/:id",
-        "On validation error, returns HTTP 422 with a descriptive error message",
-        "On simulation failure (timeout, crash), returns HTTP 500 with error details",
-        "On queue full/timeout, returns HTTP 503",
-        "Typecheck passes"
+        "Dragging from an output handle to an input handle creates a directed edge",
+        "Edges render as smoothstep type with animated markerEnd arrows",
+        "Each output handle allows only one outgoing edge (enforced via onConnect validation)",
+        "Each input handle allows only one incoming edge (enforced via onConnect validation)",
+        "Edges can be deleted by selecting and pressing Delete/Backspace",
+        "Nodes can be deleted by selecting and pressing Delete/Backspace",
+        "Typecheck passes",
+        "Verify in browser: connections form correctly and deletions work"
       ],
-      "dependsOn": ["US-004", "US-009"],
+      "dependsOn": ["US-004"],
       "sharedFiles": [
-        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register simulation run route" },
-        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add POST /api/run endpoint" }
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Add onConnect, onEdgesDelete, onNodesDelete handlers" }
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Wire together SimulationService (with queue lock) and WaveformService. After simulation, copy VCD to waveform storage with UUID name. Return waveform_id in response."
+      "passes": false,
+      "notes": "Use React Flow's onConnect callback. Before adding an edge, check that the source node doesn't already have an outgoing edge and the target node doesn't already have an incoming edge — if so, replace the existing edge. Set defaultEdgeOptions with type='smoothstep' and markerEnd={type: MarkerType.ArrowClosed}. Use onNodesDelete and onEdgesDelete for delete key handling (React Flow handles this automatically when deleteKeyCode is set)."
     },
     {
       "id": "US-006",
-      "title": "GET /api/templates — List Test Templates",
-      "description": "As an API consumer, I want to list available test templates so that I can quickly run pre-built test sequences.",
+      "title": "Flow-to-JSON Serialization",
+      "description": "As a developer, I want to convert the React Flow graph into the backend's JSON step format so that I can submit it for simulation.",
       "acceptanceCriteria": [
-        "GET /api/templates returns a JSON array of template objects",
-        "Each template object has: id (filename without extension), name (from JSON metadata or filename), description (from JSON metadata or empty), step_count (number of steps)",
-        "Templates are loaded from backend/sim/templates/*.json (the Phase 1 template files)",
-        "Response is cached in memory (reloaded on restart)",
+        "frontend/src/lib/serialize.ts exports a function serializeFlow(nodes, edges) that returns an array of step objects",
+        "Performs topological sort on the directed graph to determine execution order",
+        "Disconnected nodes are excluded — only the longest connected chain starting from a root node (no incoming edges) is serialized",
+        "Each node maps to its corresponding step format: reset={op:'reset'}, write={op:'write_bytes',addr,reg,data}, read={op:'read_bytes',addr,reg,n,expect?}, scan={op:'scan',addr,expect?}, delay={op:'delay',cycles}",
+        "Hex string values are formatted as '0x' prefix (e.g., '0x50', '0xA5')",
+        "Unit tests pass for: linear chain, single node, empty canvas, disconnected nodes filtering",
         "Typecheck passes"
       ],
-      "dependsOn": ["US-001"],
-      "sharedFiles": [
-        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register template routes" },
-        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add template list endpoint" }
-      ],
-      "priority": 2,
-      "passes": true,
-      "notes": "Load templates from backend/sim/templates/*.json. Cache the template list in memory on first access."
+      "dependsOn": ["US-003"],
+      "sharedFiles": [],
+      "priority": 3,
+      "passes": false,
+      "notes": "Topological sort: build adjacency list from edges, find root nodes (no incoming edges), BFS/DFS from the root. If multiple roots exist, pick the longest chain. Map node.type + node.data to the backend step format. For write/read/scan nodes, format addr and reg as hex strings. For write data and read expect, split comma-separated input and format each as hex string. Tests: use vitest (add as dev dependency), test file at frontend/src/lib/serialize.test.ts."
     },
     {
       "id": "US-007",
-      "title": "GET /api/templates/:id — Get Template Detail",
-      "description": "As an API consumer, I want to fetch a specific template's full content so that I can inspect or submit it to /api/run.",
+      "title": "API Client & Run Execution",
+      "description": "As a user, I want to click Run to execute my test flow and see results so that I can validate my I2C sequences.",
       "acceptanceCriteria": [
-        "GET /api/templates/{template_id} returns the full JSON content of the template file",
-        "Returns HTTP 404 if the template ID does not match any file",
-        "Response includes the steps array ready to be submitted to POST /api/run",
-        "Typecheck passes"
+        "frontend/src/lib/api.ts exports functions: runSimulation(steps), fetchTemplates(), getWaveformUrl(id)",
+        "API base URL is configurable via VITE_API_URL env var (defaults to http://localhost:8000/api)",
+        "Run button in toolbar is enabled only when canvas has at least one connected chain (2+ nodes connected by edge)",
+        "Clicking Run serializes the flow, calls POST /api/run, and shows a loading spinner on the button",
+        "On success, simulation result is stored in app state for ResultPanel to display",
+        "On error (422/500/503), an inline error banner is shown below the toolbar with the error message",
+        "Error banner can be dismissed",
+        "Typecheck passes",
+        "Verify in browser: Run button triggers API call and shows loading state"
       ],
-      "dependsOn": ["US-006"],
+      "dependsOn": ["US-005", "US-006"],
       "sharedFiles": [
-        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add template detail endpoint" }
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Wire up Run button click handler with serialize + API call + state management" }
       ],
-      "priority": 3,
-      "passes": true,
-      "notes": ""
+      "priority": 6,
+      "passes": false,
+      "notes": "Use fetch() for API calls (no need for axios). API client pattern: const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'. Store simulation result in React state (useState<SimulationResult | null>). Pass result down to ResultPanel. For Vite dev proxy alternative: add proxy config in vite.config.ts to forward /api to localhost:8000."
     },
     {
       "id": "US-008",
-      "title": "GET /api/waveform/:id — Download VCD",
-      "description": "As an API consumer, I want to download the VCD waveform file from a simulation run so that I can view it in a waveform viewer.",
+      "title": "Result Panel — Step Results & Register Dump",
+      "description": "As a user, I want to see detailed execution results so that I can verify my I2C test passed or failed.",
       "acceptanceCriteria": [
-        "GET /api/waveform/{waveform_id} returns the VCD file as application/octet-stream with Content-Disposition: attachment",
-        "Returns HTTP 404 if the waveform ID does not exist or has expired",
-        "VCD files are stored in a temp directory with UUID-based naming",
-        "Typecheck passes"
+        "Result panel auto-expands when simulation results are available",
+        "Shows overall pass/fail status with green (pass) or red (fail) color indicator and text",
+        "Each step is listed with: step index, operation name, status (ok/fail), and relevant details",
+        "For read_bytes steps: shows returned data array and match result (pass/fail vs expected)",
+        "For scan steps: shows found status and match result",
+        "Failed steps are highlighted with red background",
+        "Register dump section shows a formatted hex table (address: value) of the 256-byte register file",
+        "A 'Download VCD' button triggers waveform file download via GET /api/waveform/{waveform_id}",
+        "Typecheck passes",
+        "Verify in browser: results display correctly for both pass and fail scenarios"
       ],
-      "dependsOn": ["US-009"],
-      "sharedFiles": [
-        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register waveform route" },
-        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add waveform download endpoint" }
-      ],
-      "priority": 5,
-      "passes": true,
-      "notes": "Use FastAPI FileResponse with media_type='application/octet-stream'. Validate UUID format to prevent path traversal."
+      "dependsOn": ["US-007"],
+      "sharedFiles": [],
+      "priority": 7,
+      "passes": false,
+      "notes": "ResultPanel receives simulation result as prop. Register dump: display as a grid of 16 columns x 16 rows (256 bytes). Download VCD: use window.open() or create an <a> tag with the waveform URL from api.ts getWaveformUrl(). Show 'No results yet' message when result is null."
     },
     {
       "id": "US-009",
-      "title": "VCD Storage & TTL Cleanup",
-      "description": "As a backend service, I want VCD files to be automatically cleaned up after a TTL period so that disk space is not wasted.",
+      "title": "Node Status Overlay",
+      "description": "As a user, I want to see pass/fail status on each node after execution so that I can quickly identify which step failed.",
       "acceptanceCriteria": [
-        "VCD files are stored in a configurable temp directory (default: system temp dir / i2c-sim-waveforms/)",
-        "Each simulation run creates a VCD file named {uuid}.vcd",
-        "A background task runs every 5 minutes to delete VCD files older than 30 minutes",
-        "The background task starts with the FastAPI app lifecycle (startup event)",
-        "TTL is configurable via environment variable VCD_TTL_MINUTES (default: 30)",
-        "Typecheck passes"
+        "After simulation completes, each node in the executed chain shows a small status badge (green checkmark for ok, red X for fail)",
+        "Status is mapped by step index to the corresponding node in the serialized topological order",
+        "Status badges clear when the flow is modified (node added/removed/parameter edited, edge added/removed)",
+        "Typecheck passes",
+        "Verify in browser: status badges appear on nodes after running a simulation and clear on edit"
       ],
-      "dependsOn": ["US-001"],
+      "dependsOn": ["US-007"],
       "sharedFiles": [
-        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register lifespan/startup event for cleanup task" }
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Add status state management and clear-on-edit logic" }
       ],
-      "priority": 2,
-      "passes": true,
-      "notes": "Create backend/app/services/waveform.py for VCD storage and cleanup logic. Use FastAPI lifespan context manager for the background cleanup task."
+      "priority": 7,
+      "passes": false,
+      "notes": "Store step results in a Map<nodeId, 'ok' | 'fail'> state. After simulation, map the serialized node order to step results. Pass status to each node via node.data.status. In custom node components, render a small badge based on data.status. Clear the status map in onNodesChange, onEdgesChange, and when node data changes."
     },
     {
       "id": "US-010",
-      "title": "End-to-End Integration Test",
-      "description": "As a developer, I want integration tests that verify the full API flow so that I can confidently deploy.",
+      "title": "Template Loading",
+      "description": "As a user, I want to load pre-built test templates so that I can quickly start with common test patterns.",
       "acceptanceCriteria": [
-        "Test file at backend/tests/test_api.py using httpx.AsyncClient with FastAPI's TestClient",
-        "Test: POST /api/run with a simple write+read sequence returns passed: true",
-        "Test: POST /api/run with invalid steps returns HTTP 422",
-        "Test: GET /api/templates returns a non-empty list",
-        "Test: GET /api/templates/{id} returns valid template content",
-        "Test: GET /api/waveform/{id} with valid ID returns a VCD file",
-        "Test: GET /api/waveform/{id} with invalid ID returns 404",
-        "Test: GET /api/health returns 200",
-        "Tests can run without iverilog installed (mock the subprocess call)",
-        "Tests pass",
-        "Typecheck passes"
+        "A 'Templates' dropdown button in the toolbar lists templates fetched from GET /api/templates",
+        "Template list shows template name and description",
+        "Selecting a template fetches full template via GET /api/templates/{id} and populates the canvas with corresponding nodes and edges",
+        "Template steps are auto-positioned in a vertical chain (spaced evenly, ~120px apart vertically)",
+        "Loading a template shows a confirmation dialog if the canvas is not empty ('Replace current flow?')",
+        "Typecheck passes",
+        "Verify in browser: templates load and display correctly on canvas"
       ],
-      "dependsOn": ["US-005", "US-007", "US-008"],
+      "dependsOn": ["US-007"],
       "sharedFiles": [],
+      "priority": 7,
+      "passes": false,
+      "notes": "Fetch templates on component mount or on dropdown open. To convert template steps to nodes: iterate steps, create a node for each step with appropriate type and data, position at (250, i * 120), create edges connecting sequential nodes. Use the same node type mapping as serialize.ts but in reverse (op -> node type). Template dropdown can be a simple div with absolute positioning, no need for a modal library."
+    },
+    {
+      "id": "US-011",
+      "title": "localStorage Flow Persistence",
+      "description": "As a user, I want my flow to persist across page refreshes so that I don't lose my work.",
+      "acceptanceCriteria": [
+        "Current flow (nodes array, edges array, viewport transform) is auto-saved to localStorage on every change",
+        "On page load, saved flow is restored from localStorage if present",
+        "A 'Clear' button in the toolbar resets the canvas to empty and clears localStorage",
+        "Saved data is stored under the key 'i2c-demo-flow'",
+        "Typecheck passes",
+        "Verify in browser: refresh preserves the flow; Clear button removes it"
+      ],
+      "dependsOn": ["US-005"],
+      "sharedFiles": [
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Add localStorage save/restore logic and Clear button" }
+      ],
       "priority": 6,
-      "passes": true,
-      "notes": "Mock asyncio.create_subprocess_exec to avoid needing iverilog/cocotb. Use httpx.AsyncClient for async test support."
+      "passes": false,
+      "notes": "Use useEffect to save to localStorage when nodes/edges change (debounce with setTimeout ~500ms to avoid excessive writes). On mount, read from localStorage and set initial nodes/edges/viewport. Use ReactFlow's onMoveEnd or fitView for viewport restore. Store as JSON: {nodes, edges, viewport}. Clear button: setNodes([]), setEdges([]), localStorage.removeItem('i2c-demo-flow')."
+    },
+    {
+      "id": "US-012",
+      "title": "Input Validation & UX Polish",
+      "description": "As a user, I want clear feedback when I enter invalid parameters so that I can fix issues before running.",
+      "acceptanceCriteria": [
+        "Address fields validate hex format in range 0x00-0x7F (7-bit I2C address)",
+        "Register fields validate hex format in range 0x00-0xFF",
+        "Data fields validate as comma-separated hex bytes (each 0x00-0xFF)",
+        "Cycle count validates as positive integer (> 0)",
+        "Invalid fields show a red border and brief inline error text below the input",
+        "Run button is disabled if any node in the connected chain has validation errors",
+        "Typecheck passes",
+        "Verify in browser: validation errors display correctly for invalid inputs"
+      ],
+      "dependsOn": ["US-003", "US-007"],
+      "sharedFiles": [],
+      "priority": 8,
+      "passes": false,
+      "notes": "Create a shared validation utility (frontend/src/lib/validate.ts) with functions: validateHexAddr(v), validateHexReg(v), validateHexDataList(v), validatePositiveInt(v). Each returns {valid: boolean, error?: string}. Call validators in node components on input change, store validation state in node.data.errors. In the Run handler, check all nodes for errors before serializing. Add 'nodrag' class to input elements inside nodes to prevent drag when interacting with form fields."
     }
   ]
 }

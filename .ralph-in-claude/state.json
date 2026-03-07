@@ -1,20 +1,20 @@
 {
-  "status": "completed",
+  "status": "running",
   "conflictStrategy": "optimistic",
-  "currentWave": 6,
+  "currentWave": 1,
   "workers": [
     {
-      "storyId": "US-010",
-      "storyTitle": "End-to-End Integration Test",
-      "status": "completed",
+      "storyId": "US-001",
+      "storyTitle": "Project Setup with Bun + Vite + React + TypeScript",
+      "status": "running",
       "mode": "direct",
       "worktreeBranch": null,
       "worktreePath": null,
-      "startedAt": "2026-03-07T22:50:00+0800",
-      "completedAt": "2026-03-07T22:52:00+0800",
+      "startedAt": "2026-03-08T07:41:51+0800",
+      "completedAt": null,
       "retryCount": 0
     }
   ],
   "failedStories": {},
-  "lastUpdated": "2026-03-07T22:52:00+0800"
+  "lastUpdated": "2026-03-08T07:41:51+0800"
 }
