@@ -57,9 +57,12 @@ variable (a JSON-encoded list of step dicts).
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import pathlib
+import sys
+import tempfile
 from typing import Any
 
 import cocotb
@@ -549,3 +552,171 @@ def run_simulation(
         test_dir=str(_SIM_DIR),
         extra_env=sim_env,
     )
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Build and return the argument parser for the CLI."""
+    parser = argparse.ArgumentParser(
+        prog="test_runner.py",
+        description=(
+            "Run an I2C simulation test sequence from a JSON file "
+            "and print structured JSON results."
+        ),
+    )
+    parser.add_argument(
+        "--input",
+        metavar="FILE",
+        required=True,
+        help="Path to the JSON test sequence file.",
+    )
+    parser.add_argument(
+        "--output",
+        metavar="FILE",
+        default=None,
+        help=(
+            "Path to write the JSON result.  "
+            "Defaults to stdout when not specified."
+        ),
+    )
+    parser.add_argument(
+        "--vcd-dir",
+        metavar="DIR",
+        default=None,
+        dest="vcd_dir",
+        help=(
+            "Directory in which VCD waveform files are placed.  "
+            "Defaults to the current working directory."
+        ),
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point.  Returns the process exit code.
+
+    Exit codes
+    ----------
+    0 — all test steps passed.
+    1 — one or more test steps failed or an execution error occurred.
+    2 — argument / input parsing error (argparse uses 2 by convention).
+    """
+    parser = _build_arg_parser()
+    args = parser.parse_args(argv)
+
+    # --- Read and validate the input JSON file ---
+    input_path = pathlib.Path(args.input)
+    try:
+        with open(input_path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except FileNotFoundError:
+        print(
+            f"error: input file not found: {input_path}", file=sys.stderr
+        )
+        return 1
+    except json.JSONDecodeError as exc:
+        print(
+            f"error: failed to parse input JSON: {exc}", file=sys.stderr
+        )
+        return 1
+
+    # The input file may be either a bare list of steps or a dict with a
+    # "steps" key (the schema used by the template files).
+    if isinstance(payload, list):
+        raw_steps = payload
+    elif isinstance(payload, dict) and "steps" in payload:
+        raw_steps = payload["steps"]
+    else:
+        print(
+            "error: input JSON must be a list of steps or a dict with a "
+            "'steps' key.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Validate steps before launching the (potentially expensive) simulation.
+    try:
+        parse_sequence(raw_steps)
+    except (ValueError, TypeError, KeyError) as exc:
+        print(f"error: invalid test sequence: {exc}", file=sys.stderr)
+        return 1
+
+    # --- Prepare paths for the simulation ---
+    steps_json_str = json.dumps(raw_steps)
+
+    # Use a temp file so the cocotb coroutine can write its structured result
+    # even when --output is not given (we read it back to print to stdout).
+    with tempfile.NamedTemporaryFile(
+        suffix=".json", delete=False, mode="w", encoding="utf-8"
+    ) as tmp:
+        result_tmp_path = tmp.name
+
+    # --- Execute the simulation ---
+    exit_code = 0
+    try:
+        run_simulation(
+            vcd_dir=args.vcd_dir,
+            steps_json=steps_json_str,
+            result_json_path=result_tmp_path,
+        )
+    except SystemExit as exc:
+        # cocotb / the runner may call sys.exit() on failure.
+        # We catch it so we can still emit the result JSON before exiting.
+        exit_code = int(exc.code) if exc.code is not None else 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: simulation failed: {exc}", file=sys.stderr)
+        # Clean up the temp file and exit with failure code.
+        try:
+            pathlib.Path(result_tmp_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        return 1
+
+    # --- Read back the structured result ---
+    result_path_obj = pathlib.Path(result_tmp_path)
+    result: dict = {}
+    if result_path_obj.exists() and result_path_obj.stat().st_size > 0:
+        try:
+            with open(result_path_obj, "r", encoding="utf-8") as fh:
+                result = json.load(fh)
+        except json.JSONDecodeError:
+            pass  # result dict stays empty; exit code already set
+
+    # Clean up the temp file.
+    try:
+        result_path_obj.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+    # Determine exit code from the result when the runner did not set one.
+    if exit_code == 0 and result:
+        if not result.get("passed", True):
+            exit_code = 1
+
+    # --- Emit the JSON result ---
+    result_text = json.dumps(result, indent=2) if result else "{}"
+    if args.output:
+        output_path = pathlib.Path(args.output)
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, "w", encoding="utf-8") as fh:
+                fh.write(result_text)
+                fh.write("\n")
+        except OSError as exc:
+            print(
+                f"error: could not write output file {output_path}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        print(result_text)
+
+    return exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
