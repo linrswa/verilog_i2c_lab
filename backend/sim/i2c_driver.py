@@ -88,6 +88,106 @@ class I2CDriver:
         await ClockCycles(dut.clk, _RESET_SETTLE_CYCLES)
 
     # ------------------------------------------------------------------
+    # Write operations
+    # ------------------------------------------------------------------
+
+    async def write_bytes(self, addr: int, reg: int, data: list) -> bool:
+        """Write *data* bytes to *addr* starting at register *reg*.
+
+        The I2C write transaction format understood by this master is:
+
+            START | slave_addr+W | ACK | reg_byte | ACK | data[0] | ACK | ... | STOP
+
+        The hardware ``num_bytes`` field is 4-bit (range 1-15), so writes
+        longer than 14 data bytes are split into multiple transactions.  The
+        slave auto-increments its register pointer on every byte received, so
+        subsequent transactions supply the updated register address and carry
+        on from where the previous one left off.
+
+        Parameters
+        ----------
+        addr:
+            7-bit I2C slave address.
+        reg:
+            8-bit register start address (register pointer byte).
+        data:
+            List of 1-256 byte values to write.
+
+        Returns
+        -------
+        bool
+            ``True`` when all bytes were acknowledged, ``False`` if the master
+            detected a NACK at any point during the transaction sequence.
+        """
+        if not data:
+            return True
+
+        # Maximum data bytes per hardware transaction (num_bytes is 4-bit,
+        # one slot is consumed by the register pointer byte).
+        _MAX_DATA_PER_TXN = 14
+
+        dut = self._dut
+        remaining = list(data)
+        current_reg = reg & 0xFF
+
+        while remaining:
+            chunk = remaining[:_MAX_DATA_PER_TXN]
+            remaining = remaining[_MAX_DATA_PER_TXN:]
+
+            # Total bytes in this transaction: 1 (reg ptr) + len(chunk).
+            total_bytes = 1 + len(chunk)
+
+            # Build the full byte sequence for this transaction so we can feed
+            # them in order: [reg_ptr, data[0], data[1], ...].
+            payload = [current_reg & 0xFF] + [b & 0xFF for b in chunk]
+
+            # Set up master control signals before asserting start.
+            dut.slave_addr_in.value = addr
+            dut.rw.value = 0
+            dut.num_bytes.value = total_bytes
+            dut.repeated_start_in.value = 0
+            dut.data_in.value = payload[0]  # first byte (reg pointer)
+
+            # Pulse start for exactly one clock cycle.
+            dut.start.value = 1
+            await RisingEdge(dut.clk)
+            dut.start.value = 0
+
+            # Feed subsequent bytes by watching byte_count.  When byte_count
+            # increments to N, the master has finished sending payload[N-1] and
+            # is about to sample data_in for payload[N].  We must update
+            # data_in before the ACK HIGH_MID sample point.
+            next_payload_idx = 1
+            done_seen = False
+
+            while not done_seen:
+                await RisingEdge(dut.clk)
+
+                if dut.done.value == 1:
+                    done_seen = True
+                    break
+
+                if next_payload_idx < len(payload):
+                    current_byte_count = int(dut.byte_count.value)
+                    if current_byte_count >= next_payload_idx:
+                        dut.data_in.value = payload[next_payload_idx]
+                        next_payload_idx += 1
+
+            # Check for NACK before proceeding to the next chunk.
+            if int(dut.ack_error.value) == 1:
+                return False
+
+            # Advance the register pointer by the number of data bytes sent so
+            # that the next transaction continues at the right offset (wraps at
+            # 256 to mirror the slave's 8-bit auto-increment).
+            current_reg = (current_reg + len(chunk)) & 0xFF
+
+            # Brief inter-transaction gap so the slave is ready.
+            await ClockCycles(dut.clk, 10)
+
+        return True
+
+    # ------------------------------------------------------------------
     # Convenience properties
     # ------------------------------------------------------------------
 
