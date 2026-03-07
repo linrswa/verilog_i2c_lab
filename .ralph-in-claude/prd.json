@@ -101,7 +101,7 @@
         { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "adds read_bytes method" }
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "在 i2c_driver.py 中新增 read_bytes 方法。I2C read 流程：先 write transaction 送 slave addr + reg pointer，再 read transaction 送 slave addr (read mode) 讀回 n bytes。參考現有 test_i2c_system.py 的讀取邏輯。"
     },
     {

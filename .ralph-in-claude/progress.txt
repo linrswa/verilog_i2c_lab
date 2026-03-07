@@ -29,3 +29,9 @@
 - Files changed: backend/sim/i2c_driver.py
 - Learnings: num_bytes is 4-bit (max 15); master samples data_in during ACK HIGH_MID tick; done pulse is 1 cycle wide
 ---
+
+## 2026-03-07T21:17+0800 - US-005: I2CDriver Read 操作
+- Added read_bytes() to I2CDriver. Uses stop-start sequence (write reg pointer, then read). Chunks at 15 bytes per read transaction.
+- Files changed: backend/sim/i2c_driver.py
+- Learnings: Max read per transaction is 15 (vs 14 for write since no reg pointer byte). Check done before data_valid to avoid infinite loop.
+---

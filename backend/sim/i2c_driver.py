@@ -300,6 +300,87 @@ class I2CDriver:
         return result
 
     # ------------------------------------------------------------------
+    # Scan and register dump utilities
+    # ------------------------------------------------------------------
+
+    async def scan(self, addr: int) -> bool:
+        """Probe whether a slave is present at *addr* by sending a write transaction.
+
+        A zero-byte write transaction is issued to *addr*.  If the slave ACKs
+        its address byte the method returns ``True``; if no slave responds
+        (NACK) it returns ``False``.
+
+        The scan is implemented as a minimal write: only the address phase is
+        needed, so we send a single register-pointer byte (0x00) and rely on
+        the ack_error flag to report whether the slave was present.
+
+        Parameters
+        ----------
+        addr:
+            7-bit I2C slave address to probe.
+
+        Returns
+        -------
+        bool
+            ``True`` if a slave acknowledged the address, ``False`` otherwise.
+        """
+        dut = self._dut
+
+        # Send a write transaction with a single dummy byte (register 0x00).
+        # The slave will ACK its address if it is present; ack_error will be
+        # set if no ACK is received.
+        dut.slave_addr_in.value = addr
+        dut.rw.value = 0
+        dut.num_bytes.value = 1      # one byte: the register pointer
+        dut.repeated_start_in.value = 0
+        dut.data_in.value = 0x00     # dummy register address byte
+
+        # Pulse start for exactly one clock cycle.
+        dut.start.value = 1
+        await RisingEdge(dut.clk)
+        dut.start.value = 0
+
+        # Wait for the transaction to complete.
+        while True:
+            await RisingEdge(dut.clk)
+            if dut.done.value == 1:
+                break
+
+        # ack_error == 1 means the slave did not ACK → address not present.
+        slave_found = int(dut.ack_error.value) == 0
+
+        # Brief settling gap before the caller issues the next operation.
+        await ClockCycles(dut.clk, 10)
+
+        return slave_found
+
+    async def get_register_dump(self) -> dict:
+        """Return a snapshot of the slave's internal register file.
+
+        Reads the ``register_file`` memory array directly from the DUT
+        hierarchy without issuing any I2C transactions.  This is a pure
+        simulation utility and has no effect on DUT state.
+
+        DUT hierarchy path
+        ------------------
+        i2c_system_wrapper
+          └── dut          (i2c_top instance, named "dut" in the wrapper)
+                └── slave_inst  (i2c_slave instance)
+                      └── register_file[0:255]
+
+        Returns
+        -------
+        dict
+            Mapping of register address (int) → byte value (int) for all 256
+            registers.  Example: ``{0: 0xAB, 1: 0x00, ..., 255: 0x00}``.
+        """
+        slave = self._dut.dut.slave_inst
+        dump: dict = {}
+        for i in range(256):
+            dump[i] = int(slave.register_file[i].value)
+        return dump
+
+    # ------------------------------------------------------------------
     # Convenience properties
     # ------------------------------------------------------------------
 

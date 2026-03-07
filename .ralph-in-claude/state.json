@@ -1,20 +1,20 @@
 {
   "status": "running",
   "conflictStrategy": "conservative",
-  "currentWave": 5,
+  "currentWave": 6,
   "workers": [
     {
-      "storyId": "US-005",
-      "storyTitle": "I2CDriver Read 操作",
+      "storyId": "US-006",
+      "storyTitle": "I2CDriver Scan 與 Register Dump",
       "status": "running",
       "mode": "direct",
       "worktreeBranch": null,
       "worktreePath": null,
-      "startedAt": "2026-03-07T21:17:36+0800",
+      "startedAt": "2026-03-07T21:19:31+0800",
       "completedAt": null,
       "retryCount": 0
     }
   ],
   "failedStories": {},
-  "lastUpdated": "2026-03-07T21:17:36+0800"
+  "lastUpdated": "2026-03-07T21:19:31+0800"
 }
