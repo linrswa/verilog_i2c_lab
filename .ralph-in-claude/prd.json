@@ -22,7 +22,7 @@
         { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Created here, later stories register routes/lifespan" }
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "File structure: backend/app/main.py (FastAPI app, CORS, lifespan), backend/app/routes/simulation.py (route handlers), backend/app/services/ (runner.py, waveform.py). CORS should allow all origins for dev."
     },
     {
@@ -44,7 +44,7 @@
         { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Created here, US-003 and US-004 modify it" }
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Use asyncio.create_subprocess_exec (not subprocess.run) to avoid blocking the event loop. Path resolution: SimulationService needs path to test_runner.py and RTL sources relative to backend/sim/ directory."
     },
     {
@@ -64,7 +64,7 @@
         { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Adds caching logic to SimulationService" }
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Cache state in memory — recompile on server restart is acceptable. Check mtime of all .v files in RTL source directory."
     },
     {
@@ -83,7 +83,7 @@
         { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Adds asyncio.Lock to SimulationService" }
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Use asyncio.wait_for with 120s timeout on lock acquisition. Ensure lock release in finally block."
     },
     {
@@ -106,7 +106,7 @@
         { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add POST /api/run endpoint" }
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Wire together SimulationService (with queue lock) and WaveformService. After simulation, copy VCD to waveform storage with UUID name. Return waveform_id in response."
     },
     {
@@ -126,7 +126,7 @@
         { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add template list endpoint" }
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Load templates from backend/sim/templates/*.json. Cache the template list in memory on first access."
     },
     {
@@ -144,7 +144,7 @@
         { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add template detail endpoint" }
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -163,7 +163,7 @@
         { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add waveform download endpoint" }
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Use FastAPI FileResponse with media_type='application/octet-stream'. Validate UUID format to prevent path traversal."
     },
     {
@@ -183,7 +183,7 @@
         { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register lifespan/startup event for cleanup task" }
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Create backend/app/services/waveform.py for VCD storage and cleanup logic. Use FastAPI lifespan context manager for the background cleanup task."
     },
     {
@@ -206,7 +206,7 @@
       "dependsOn": ["US-005", "US-007", "US-008"],
       "sharedFiles": [],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Mock asyncio.create_subprocess_exec to avoid needing iverilog/cocotb. Use httpx.AsyncClient for async test support."
     }
   ]

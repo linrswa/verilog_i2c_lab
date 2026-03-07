@@ -3,6 +3,8 @@
 ## Codebase Patterns
 - Verilog 8-bit register arithmetic naturally wraps (255 + 1 = 0), no explicit modulo needed
 - reg_addr was already 8-bit in original design
+- FastAPI app uses lifespan context manager pattern; CORS allows all origins for dev
+- mypy with --ignore-missing-imports for typecheck (fastapi has stubs, cocotb does not)
 
 ---
 
@@ -76,4 +78,58 @@
 - Created 3 template JSON files: basic_write_read.json, full_test.json, stress_test.json (31 total steps)
 - Files changed: backend/sim/templates/basic_write_read.json, full_test.json, stress_test.json
 - Learnings: Use {"steps": [...]} dict format for extensibility. scan expect must be JSON boolean.
+---
+
+## 2026-03-07T22:31+0800 - US-001: FastAPI Project Skeleton
+- Created FastAPI project skeleton with CORS middleware, health endpoint, stub files for routes/services
+- Files changed: backend/app/main.py, backend/app/routes/simulation.py, backend/app/services/runner.py, backend/app/services/waveform.py, backend/requirements.txt, __init__.py files
+- Learnings: FastAPI lifespan context manager is the modern startup/shutdown pattern. TestClient works for endpoint verification.
+---
+
+## 2026-03-07T22:35+0800 - US-002: Simulation Service — Core Execution
+- SimulationService class in runner.py. Uses asyncio.create_subprocess_exec with temp JSON files for input/output. 60s configurable timeout.
+- Files changed: backend/app/services/runner.py
+- Learnings: test_runner.py CLI accepts --input FILE --output FILE. Temp file fds must be closed before subprocess use.
+---
+
+## 2026-03-07T22:35+0800 - US-006: GET /api/templates — List Test Templates
+- Created templates service and route. Loads from backend/sim/templates/*.json, caches in memory. Each template has id, name, description, step_count.
+- Files changed: backend/app/services/templates.py, backend/app/routes/templates.py, backend/app/main.py
+- Learnings: Python 3.9 requires Optional[List[...]] not list[...] | None. Template JSON files use filename stem as fallback name.
+---
+
+## 2026-03-07T22:35+0800 - US-009: VCD Storage & TTL Cleanup
+- Implemented waveform.py with allocate_vcd_path(), cleanup loop (5min interval), TTL from VCD_TTL_MINUTES env var. Integrated into main.py lifespan.
+- Files changed: backend/app/services/waveform.py, backend/app/main.py
+- Learnings: Lifespan context manager: start cleanup task before yield, cancel after yield. main.py append-only conflict with US-006 auto-resolved (both added imports).
+---
+
+## 2026-03-07T22:42+0800 - US-003: Build Caching (Hybrid Compile)
+- Added mtime-based caching to SimulationService. Passes --skip-build to test_runner.py when no RTL changes detected. Modified test_runner.py to accept --skip-build flag.
+- Files changed: backend/app/services/runner.py, backend/sim/test_runner.py
+- Learnings: cocotb runner.build() has always= flag for forced recompile. Mtime snapshot taken before subprocess start.
+---
+
+## 2026-03-07T22:42+0800 - US-007: GET /api/templates/:id — Get Template Detail
+- Added route handler using get_template() from bridge prep. Returns full JSON content or 404.
+- Files changed: backend/app/routes/templates.py
+- Learnings: get_template() reads directly from disk (not cached summary), returns raw parsed JSON with steps.
+---
+
+## 2026-03-07T22:42+0800 - US-008: GET /api/waveform/:id — Download VCD
+- Added waveform download endpoint with UUID validation and FileResponse.
+- Files changed: backend/app/routes/simulation.py
+- Learnings: UUID validation prevents path traversal. FileResponse filename kwarg auto-sets Content-Disposition.
+---
+
+## 2026-03-07T22:46+0800 - US-004: Request Queue (Single Concurrency)
+- Added asyncio.Lock to SimulationService with 120s queue timeout. QueueTimeoutError exception for HTTP 503 mapping.
+- Files changed: backend/app/services/runner.py
+- Learnings: asyncio.Lock.acquire() is a coroutine compatible with wait_for. Separate lock acquire try/except from release finally.
+---
+
+## 2026-03-07T22:49+0800 - US-005: POST /api/run — Execute Simulation
+- Added POST /api/run with Pydantic validation, SimulationService singleton, VCD copy to waveform storage. Returns waveform_id. Maps QueueTimeoutError→503, TimeoutError/RuntimeError→500.
+- Files changed: backend/app/routes/simulation.py
+- Learnings: shutil.copy2 preserves mtime (important for TTL cleanup). Module-level SimulationService singleton for lock sharing. Python 3.9 requires Optional[str] not str | None.
 ---

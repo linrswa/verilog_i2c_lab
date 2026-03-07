@@ -1,20 +1,20 @@
 {
   "status": "completed",
-  "conflictStrategy": "conservative",
-  "currentWave": 11,
+  "conflictStrategy": "optimistic",
+  "currentWave": 6,
   "workers": [
     {
-      "storyId": "US-012",
-      "storyTitle": "範例 JSON 測試檔案",
+      "storyId": "US-010",
+      "storyTitle": "End-to-End Integration Test",
       "status": "completed",
       "mode": "direct",
       "worktreeBranch": null,
       "worktreePath": null,
-      "startedAt": "2026-03-07T22:01:52+0800",
-      "completedAt": "2026-03-07T22:04:16+0800",
+      "startedAt": "2026-03-07T22:50:00+0800",
+      "completedAt": "2026-03-07T22:52:00+0800",
       "retryCount": 0
     }
   ],
   "failedStories": {},
-  "lastUpdated": "2026-03-07T22:04:16+0800"
+  "lastUpdated": "2026-03-07T22:52:00+0800"
 }

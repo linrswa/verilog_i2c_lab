@@ -1,0 +1,26 @@
+[project]
+name = "i2c-demo"
+version = "0.1.0"
+description = "I2C simulation platform with cocotb + FastAPI backend"
+requires-python = ">=3.9"
+dependencies = [
+    "cocotb>=1.9.2",
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "httpx>=0.27.0",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.0",
+]
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+asyncio_mode = "auto"
