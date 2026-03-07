@@ -6,9 +6,12 @@ import {
   Background,
   Controls,
   applyNodeChanges,
+  applyEdgeChanges,
+  addEdge,
+  MarkerType,
   useReactFlow,
 } from '@xyflow/react'
-import type { Node, NodeTypes, NodeChange } from '@xyflow/react'
+import type { Node, Edge, NodeTypes, NodeChange, EdgeChange, Connection } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
 import { Toolbar } from './components/Toolbar'
@@ -50,13 +53,25 @@ function buildDefaultData(type: string): Record<string, unknown> {
   }
 }
 
+// Edges render as smoothstep curves with closed arrowhead markers
+const defaultEdgeOptions = {
+  type: 'smoothstep',
+  markerEnd: { type: MarkerType.ArrowClosed },
+} as const
+
 // FlowCanvas is a child of ReactFlowProvider so it can safely call useReactFlow()
 function FlowCanvas({
   nodes,
+  edges,
   onNodesChange,
+  onEdgesChange,
+  onConnect,
 }: {
   nodes: Node[]
+  edges: Edge[]
   onNodesChange: (changes: NodeChange[]) => void
+  onEdgesChange: (changes: EdgeChange[]) => void
+  onConnect: (connection: Connection) => void
 }) {
   const { screenToFlowPosition, setNodes } = useReactFlow()
 
@@ -98,9 +113,13 @@ function FlowCanvas({
     >
       <ReactFlow
         nodes={nodes}
-        edges={[]}
+        edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        defaultEdgeOptions={defaultEdgeOptions}
+        deleteKeyCode={['Delete', 'Backspace']}
         fitView
       >
         <Background />
@@ -112,9 +131,34 @@ function FlowCanvas({
 
 export default function App() {
   const [nodes, setNodes] = useState<Node[]>([])
+  const [edges, setEdges] = useState<Edge[]>([])
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
+    [],
+  )
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+    [],
+  )
+
+  // Enforce single outgoing edge per source handle and single incoming edge per target handle.
+  // If a conflicting edge exists it is replaced so the canvas always stays a simple linear chain.
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      setEdges((eds) => {
+        // Remove any existing edge that originates from the same source handle
+        const withoutSourceEdge = eds.filter(
+          (e) => !(e.source === connection.source && e.sourceHandle === connection.sourceHandle),
+        )
+        // Remove any existing edge that terminates at the same target handle
+        const withoutConflict = withoutSourceEdge.filter(
+          (e) => !(e.target === connection.target && e.targetHandle === connection.targetHandle),
+        )
+        return addEdge(connection, withoutConflict)
+      })
+    },
     [],
   )
 
@@ -137,7 +181,13 @@ export default function App() {
 
         {/* ReactFlowProvider enables useReactFlow() inside FlowCanvas */}
         <ReactFlowProvider>
-          <FlowCanvas nodes={nodes} onNodesChange={onNodesChange} />
+          <FlowCanvas
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+          />
         </ReactFlowProvider>
       </div>
 
