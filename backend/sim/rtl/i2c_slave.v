@@ -17,7 +17,7 @@ module i2c_slave (
     input wire scl,  // I2C clock（由 Master 驅動）
     inout wire sda   // I2C data（open-drain, bidirectional）
 );
-    reg [7:0] register_file[0:7];  // 8 個 8-bit register
+    reg [7:0] register_file[0:255];  // 256 個 8-bit register
     reg [7:0] slave_addr_recive;
     reg [7:0] shift_reg;           // 接收中的 byte 暫存器
     reg sda_oe;
