@@ -1,0 +1,30 @@
+{
+  "description": "Stress test: address boundary (reg 0x00 and 0xFF), multi-byte burst write/read, and wrap-around (write starting at reg 0xFE crosses 0xFF into 0x00 due to auto-increment).",
+  "steps": [
+    {"op": "reset"},
+
+    {"op": "write_bytes", "addr": "0x50", "reg": "0x00", "data": ["0xAA"]},
+    {"op": "read_bytes",  "addr": "0x50", "reg": "0x00", "n": 1, "expect": ["0xAA"]},
+
+    {"op": "write_bytes", "addr": "0x50", "reg": "0xFF", "data": ["0x55"]},
+    {"op": "read_bytes",  "addr": "0x50", "reg": "0xFF", "n": 1, "expect": ["0x55"]},
+
+    {"op": "write_bytes",
+     "addr": "0x50",
+     "reg": "0x80",
+     "data": ["0x00", "0x01", "0x02", "0x03", "0x04", "0x05", "0x06", "0x07",
+              "0x08", "0x09", "0x0A", "0x0B", "0x0C", "0x0D", "0x0E", "0x0F"]},
+    {"op": "read_bytes",
+     "addr": "0x50",
+     "reg": "0x80",
+     "n": 16,
+     "expect": ["0x00", "0x01", "0x02", "0x03", "0x04", "0x05", "0x06", "0x07",
+                "0x08", "0x09", "0x0A", "0x0B", "0x0C", "0x0D", "0x0E", "0x0F"]},
+
+    {"op": "write_bytes", "addr": "0x50", "reg": "0x00", "data": ["0x11"]},
+    {"op": "write_bytes", "addr": "0x50", "reg": "0xFE", "data": ["0xF0", "0xF1", "0xF2"]},
+    {"op": "read_bytes",  "addr": "0x50", "reg": "0xFE", "n": 1, "expect": ["0xF0"]},
+    {"op": "read_bytes",  "addr": "0x50", "reg": "0xFF", "n": 1, "expect": ["0xF1"]},
+    {"op": "read_bytes",  "addr": "0x50", "reg": "0x00", "n": 1, "expect": ["0xF2"]}
+  ]
+}

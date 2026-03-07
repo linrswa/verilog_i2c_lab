@@ -1,0 +1,79 @@
+# Progress Log — I2C Demo Platform
+
+## Codebase Patterns
+- Verilog 8-bit register arithmetic naturally wraps (255 + 1 = 0), no explicit modulo needed
+- reg_addr was already 8-bit in original design
+
+---
+
+## 2026-03-07T21:10+0800 - US-001: Slave Register File 擴展至 256 bytes
+- Changed register_file from [0:7] to [0:255] in i2c_slave.v. reg_addr already 8-bit, so wrap is automatic.
+- Files changed: backend/sim/rtl/i2c_slave.v
+- Learnings: 8-bit arithmetic overflow handles wrap-around naturally
+---
+
+## 2026-03-07T21:12+0800 - US-002: i2c_top.v 適配更新
+- No RTL changes needed — slave interface unchanged (only internal register depth changed). iverilog compiles clean.
+- Files changed: none
+- Learnings: Internal-only changes (register depth) don't affect port interfaces
+---
+
+## 2026-03-07T21:13+0800 - US-003: I2CDriver 基礎框架
+- Created backend/sim/i2c_driver.py with I2CDriver class: __init__, reset(), delay()
+- Files changed: backend/sim/i2c_driver.py
+- Learnings: Wrapper uses slave_addr_in (not slave_addr) for master target address. Reset pattern: 5-cycle assert, 5-cycle settle.
+---
+
+## 2026-03-07T21:15+0800 - US-004: I2CDriver Write 操作
+- Added write_bytes() to I2CDriver. Splits into chunks of 14 data bytes (num_bytes is 4-bit, max 15 minus 1 reg pointer). Monitors byte_count to feed data_in. Returns ACK/NACK status.
+- Files changed: backend/sim/i2c_driver.py
+- Learnings: num_bytes is 4-bit (max 15); master samples data_in during ACK HIGH_MID tick; done pulse is 1 cycle wide
+---
+
+## 2026-03-07T21:17+0800 - US-005: I2CDriver Read 操作
+- Added read_bytes() to I2CDriver. Uses stop-start sequence (write reg pointer, then read). Chunks at 15 bytes per read transaction.
+- Files changed: backend/sim/i2c_driver.py
+- Learnings: Max read per transaction is 15 (vs 14 for write since no reg pointer byte). Check done before data_valid to avoid infinite loop.
+---
+
+## 2026-03-07T21:19+0800 - US-006: I2CDriver Scan 與 Register Dump
+- Added scan() and get_register_dump() to I2CDriver. scan sends 1-byte write to check ACK. get_register_dump reads all 256 registers via DUT hierarchy.
+- Files changed: backend/sim/i2c_driver.py
+- Learnings: DUT hierarchy is dut.dut.slave_inst.register_file[i] (wrapper names i2c_top as "dut", slave as "slave_inst")
+---
+
+## 2026-03-07T21:21+0800 - US-007: JSON Test Sequence Parser
+- Created backend/sim/test_runner.py with parse_step(), parse_sequence(), execute_step(), execute_sequence(). Supports reset/write_bytes/read_bytes/scan/delay ops with hex parsing and optional expect/match.
+- Files changed: backend/sim/test_runner.py
+- Learnings: expect semantics differ by op (byte list for read, bool for scan, ack for write)
+---
+
+## 2026-03-07T21:23+0800 - US-008: Test Runner 執行與結果輸出
+- Added build_final_result() and run_sequence() to test_runner.py. Final result has passed/steps/register_dump/vcd_path.
+- Files changed: backend/sim/test_runner.py
+- Learnings: passed = all steps ok AND all matches true. build_final_result is pure sync for testability.
+---
+
+## 2026-03-07T21:25+0800 - US-009: cocotb Runner Integration
+- Added run_simulation() using cocotb.runner.get_runner('icarus') and @cocotb.test() entry point. VCD via existing $dumpfile in wrapper.
+- Files changed: backend/sim/test_runner.py
+- Learnings: cocotb 2.x uses hdl_toplevel (not toplevel) and test_module (not py_module). Wrapper already has $dumpfile/$dumpvars.
+---
+
+## 2026-03-07T21:27+0800 - US-010: CLI Entry Point
+- Added argparse CLI with --input, --output, --vcd-dir to test_runner.py. Non-zero exit on failure.
+- Files changed: backend/sim/test_runner.py
+- Learnings: run_simulation() already accepts result_json_path/steps_json kwargs. CLI catches SystemExit from cocotb runner.
+---
+
+## 2026-03-07T21:27+0800 - US-011: 完整測試組
+- Created backend/sim/tests/test_i2c_cocotb.py with 10 @cocotb.test() cases. All 10 pass. Fixed 2 bugs: write_bytes timing in i2c_driver.py, false STOP condition in i2c_slave.v.
+- Files changed: backend/sim/tests/test_i2c_cocotb.py, backend/sim/i2c_driver.py, backend/sim/rtl/i2c_slave.v
+- Learnings: Slave needed in_read_ack_window to suppress false STOP during read ACK. write_bytes needed timing fix for byte_count observation.
+---
+
+## 2026-03-07T22:01+0800 - US-012: 範例 JSON 測試檔案
+- Created 3 template JSON files: basic_write_read.json, full_test.json, stress_test.json (31 total steps)
+- Files changed: backend/sim/templates/basic_write_read.json, full_test.json, stress_test.json
+- Learnings: Use {"steps": [...]} dict format for extensibility. scan expect must be JSON boolean.
+---

@@ -1,0 +1,20 @@
+{
+  "status": "completed",
+  "conflictStrategy": "conservative",
+  "currentWave": 11,
+  "workers": [
+    {
+      "storyId": "US-012",
+      "storyTitle": "範例 JSON 測試檔案",
+      "status": "completed",
+      "mode": "direct",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-07T22:01:52+0800",
+      "completedAt": "2026-03-07T22:04:16+0800",
+      "retryCount": 0
+    }
+  ],
+  "failedStories": {},
+  "lastUpdated": "2026-03-07T22:04:16+0800"
+}

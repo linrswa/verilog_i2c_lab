@@ -1,0 +1,30 @@
+{
+  "description": "Full functional test covering every supported op type: reset, scan, write_bytes, read_bytes, and delay. Exercises both passing and absent-address scan, multi-byte writes, and delay between operations.",
+  "steps": [
+    {"op": "reset"},
+
+    {"op": "scan", "addr": "0x50", "expect": true},
+
+    {"op": "scan", "addr": "0x77", "expect": false},
+
+    {"op": "write_bytes", "addr": "0x50", "reg": "0x00", "data": ["0xDE", "0xAD", "0xBE", "0xEF"]},
+
+    {"op": "read_bytes",  "addr": "0x50", "reg": "0x00", "n": 4, "expect": ["0xDE", "0xAD", "0xBE", "0xEF"]},
+
+    {"op": "delay", "cycles": 10},
+
+    {"op": "write_bytes", "addr": "0x50", "reg": "0x20", "data": ["0x01"]},
+
+    {"op": "read_bytes",  "addr": "0x50", "reg": "0x20", "n": 1, "expect": ["0x01"]},
+
+    {"op": "delay", "cycles": 5},
+
+    {"op": "write_bytes", "addr": "0x50", "reg": "0x40", "data": ["0xCA", "0xFE", "0xBA", "0xBE", "0x00", "0xFF"]},
+
+    {"op": "read_bytes",  "addr": "0x50", "reg": "0x40", "n": 6, "expect": ["0xCA", "0xFE", "0xBA", "0xBE", "0x00", "0xFF"]},
+
+    {"op": "reset"},
+
+    {"op": "read_bytes",  "addr": "0x50", "reg": "0x00", "n": 4}
+  ]
+}
