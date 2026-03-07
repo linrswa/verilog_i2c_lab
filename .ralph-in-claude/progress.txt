@@ -35,3 +35,21 @@
 - Files changed: backend/sim/i2c_driver.py
 - Learnings: Max read per transaction is 15 (vs 14 for write since no reg pointer byte). Check done before data_valid to avoid infinite loop.
 ---
+
+## 2026-03-07T21:19+0800 - US-006: I2CDriver Scan 與 Register Dump
+- Added scan() and get_register_dump() to I2CDriver. scan sends 1-byte write to check ACK. get_register_dump reads all 256 registers via DUT hierarchy.
+- Files changed: backend/sim/i2c_driver.py
+- Learnings: DUT hierarchy is dut.dut.slave_inst.register_file[i] (wrapper names i2c_top as "dut", slave as "slave_inst")
+---
+
+## 2026-03-07T21:21+0800 - US-007: JSON Test Sequence Parser
+- Created backend/sim/test_runner.py with parse_step(), parse_sequence(), execute_step(), execute_sequence(). Supports reset/write_bytes/read_bytes/scan/delay ops with hex parsing and optional expect/match.
+- Files changed: backend/sim/test_runner.py
+- Learnings: expect semantics differ by op (byte list for read, bool for scan, ack for write)
+---
+
+## 2026-03-07T21:23+0800 - US-008: Test Runner 執行與結果輸出
+- Added build_final_result() and run_sequence() to test_runner.py. Final result has passed/steps/register_dump/vcd_path.
+- Files changed: backend/sim/test_runner.py
+- Learnings: passed = all steps ok AND all matches true. build_final_result is pure sync for testability.
+---

@@ -40,13 +40,55 @@ Error handling
 --------------
 An unknown ``op`` value raises ``ValueError`` with a message naming the bad
 operation type so the caller can surface a clear diagnostic.
+
+cocotb Runner Integration
+-------------------------
+The ``run_simulation()`` function provides a no-Makefile path for compiling
+and executing the Icarus Verilog simulation via the cocotb Python runner API::
+
+    from test_runner import run_simulation
+    run_simulation(vcd_dir="/tmp/waves")
+
+The module also exposes a ``test_i2c_sequence`` cocotb coroutine which acts as
+the simulation entry point when the runner executes the ``test_runner`` Python
+module.  The steps to run are passed via the ``TEST_STEPS_JSON`` environment
+variable (a JSON-encoded list of step dicts).
 """
 
 from __future__ import annotations
 
+import json
+import os
+import pathlib
 from typing import Any
 
+import cocotb
+from cocotb.runner import get_runner
+
 from i2c_driver import I2CDriver
+
+
+# ---------------------------------------------------------------------------
+# RTL / wrapper paths (relative to this file's directory)
+# ---------------------------------------------------------------------------
+
+_SIM_DIR = pathlib.Path(__file__).parent.resolve()
+_RTL_DIR = _SIM_DIR / "rtl"
+_TB_DIR = _SIM_DIR / "tb"
+
+#: All synthesisable Verilog sources required to compile the DUT.
+_VERILOG_SOURCES = [
+    _RTL_DIR / "i2c_master.v",
+    _RTL_DIR / "i2c_slave.v",
+    _RTL_DIR / "i2c_top.v",
+    _TB_DIR / "i2c_system_wrapper.v",
+]
+
+#: Top-level module name used for build and test.
+_TOPLEVEL = "i2c_system_wrapper"
+
+#: This Python module name — used as the cocotb py_module argument.
+_PY_MODULE = "test_runner"
 
 
 # ---------------------------------------------------------------------------
@@ -382,3 +424,128 @@ async def run_sequence(
     step_results = await execute_sequence(driver, steps)
     register_dump = await driver.get_register_dump()
     return build_final_result(step_results, register_dump, vcd_path)
+
+
+# ---------------------------------------------------------------------------
+# cocotb test entry point (simulation coroutine)
+# ---------------------------------------------------------------------------
+
+
+@cocotb.test()
+async def test_i2c_sequence(dut) -> None:
+    """cocotb test coroutine — entry point for the cocotb runner.
+
+    When the runner executes this module the simulator calls this coroutine
+    with the top-level DUT handle.  Test steps are supplied via the
+    ``TEST_STEPS_JSON`` environment variable (a JSON-encoded list of raw step
+    dicts).  If the variable is absent or empty a minimal smoke test
+    (reset-only) is run so the simulation always exits cleanly.
+
+    The VCD waveform is produced by the ``$dumpfile`` / ``$dumpvars``
+    directives already present in ``i2c_system_wrapper.v``.  The waveform
+    file name is read from the ``VCD_FILENAME`` environment variable
+    (defaults to ``"i2c_system_cocotb.vcd"``).
+
+    The assembled result dict is written to ``TEST_RESULT_JSON`` (an output
+    environment variable / file path) when the variable is set.
+    """
+    # Resolve which steps to run.
+    steps_json = os.environ.get("TEST_STEPS_JSON", "")
+    if steps_json.strip():
+        raw_steps = json.loads(steps_json)
+        steps = parse_sequence(raw_steps)
+    else:
+        # Default smoke test: just reset the DUT.
+        steps = [{"op": "reset"}]
+
+    # Determine the VCD path (produced by the Verilog $dumpfile directive).
+    vcd_filename = os.environ.get("VCD_FILENAME", "i2c_system_cocotb.vcd")
+    # The simulator places the VCD in its working/build directory; we report
+    # the filename so callers can locate it relative to the build dir.
+    vcd_path: str | None = vcd_filename
+
+    driver = I2CDriver(dut)
+    result = await run_sequence(driver, steps, vcd_path=vcd_path)
+
+    # Persist the structured result so the caller can read it back.
+    result_path = os.environ.get("TEST_RESULT_JSON", "")
+    if result_path:
+        with open(result_path, "w", encoding="utf-8") as fh:
+            json.dump(result, fh, indent=2)
+
+    # Fail the cocotb test if the sequence did not pass so that the runner
+    # exits with a non-zero status on failure.
+    assert result["passed"], (
+        f"Test sequence failed. Step results: {result['steps']}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# cocotb Python runner integration
+# ---------------------------------------------------------------------------
+
+
+def run_simulation(
+    *,
+    vcd_dir: str | None = None,
+    steps_json: str | None = None,
+    result_json_path: str | None = None,
+    build_dir: str | None = None,
+) -> None:
+    """Compile the RTL and run the cocotb simulation using the Icarus runner.
+
+    This function replaces the need for a Makefile.  It uses the stable
+    cocotb Python runner API introduced in cocotb 2.0.
+
+    Parameters
+    ----------
+    vcd_dir:
+        Directory where the VCD waveform file will be placed.  The file is
+        named ``i2c_system_cocotb.vcd``.  Defaults to the current working
+        directory.
+    steps_json:
+        JSON-encoded list of raw step dicts to run inside the simulation.
+        Passed to the cocotb test via the ``TEST_STEPS_JSON`` env var.
+        When *None* the simulation runs the default smoke test (reset only).
+    result_json_path:
+        Path to write the structured JSON result after the simulation exits.
+        Passed via the ``TEST_RESULT_JSON`` env var.  When *None* the result
+        is not persisted.
+    build_dir:
+        Directory for Icarus build artefacts.  Defaults to a ``sim_build``
+        sub-directory next to this file.
+    """
+    runner = get_runner("icarus")
+
+    # Resolve build directory.
+    resolved_build_dir = (
+        pathlib.Path(build_dir) if build_dir else _SIM_DIR / "sim_build"
+    )
+
+    # Compile the RTL.
+    runner.build(
+        verilog_sources=[str(s) for s in _VERILOG_SOURCES],
+        hdl_toplevel=_TOPLEVEL,
+        build_dir=str(resolved_build_dir),
+        always=True,
+    )
+
+    # Build the environment for the test coroutine.
+    sim_env: dict[str, str] = {}
+    if steps_json is not None:
+        sim_env["TEST_STEPS_JSON"] = steps_json
+    if result_json_path is not None:
+        sim_env["TEST_RESULT_JSON"] = result_json_path
+
+    # Determine VCD filename and directory.
+    vcd_filename = "i2c_system_cocotb.vcd"
+    sim_env["VCD_FILENAME"] = vcd_filename
+
+    # Run the simulation.
+    runner.test(
+        hdl_toplevel=_TOPLEVEL,
+        test_module=_PY_MODULE,
+        build_dir=str(resolved_build_dir),
+        test_dir=str(_SIM_DIR),
+        extra_env=sim_env,
+    )

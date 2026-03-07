@@ -120,7 +120,7 @@
         { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "adds scan and get_register_dump methods" }
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "在 i2c_driver.py 中新增 scan 和 get_register_dump 方法。scan 透過發送一個 write transaction 並檢查 ACK/NACK 來偵測 slave 是否存在。get_register_dump 直接透過 cocotb DUT hierarchy 存取 slave 的 register_file array。"
     },
     {
@@ -140,7 +140,7 @@
         { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "main test runner file" }
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "建立 backend/sim/test_runner.py。JSON input 格式參考 PRD 中的範例。每個 step 是一個 dict，包含 op 欄位和對應參數。hex string 用 int(val, 16) 解析。import I2CDriver 來執行實際操作。"
     },
     {
@@ -161,7 +161,7 @@
         { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "adds execution and result logic" }
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "在 test_runner.py 中實作執行邏輯。每個 step 執行後記錄結果到 steps list。最後呼叫 get_register_dump() 取得 register 狀態。passed = 所有 step 的 match 都為 True（或沒有 expect）。"
     },
     {
