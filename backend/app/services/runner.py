@@ -55,6 +55,39 @@ class SimulationService:
         # the last successful compile.  None means "never compiled".
         self._last_compile_mtime: float | None = None
 
+    # ------------------------------------------------------------------
+    # Build-cache helpers
+    # ------------------------------------------------------------------
+
+    def _current_rtl_mtime(self) -> float:
+        """Return the maximum mtime across all RTL source files.
+
+        Files that do not exist are skipped.  If no RTL file exists at all,
+        returns 0.0 so that the first-run compile is always triggered.
+        """
+        mtimes: list[float] = []
+        for src in _RTL_SOURCES:
+            try:
+                mtimes.append(src.stat().st_mtime)
+            except OSError:
+                # File missing — skip; will force a compile on the next
+                # attempt when it exists.
+                pass
+        return max(mtimes) if mtimes else 0.0
+
+    def _needs_compile(self) -> bool:
+        """Return True if RTL sources have changed since the last compile.
+
+        Returns ``True`` on the first run (``_last_compile_mtime`` is
+        ``None``) or when any RTL source file has been modified since the
+        last successful compile.
+        """
+        if self._last_compile_mtime is None:
+            # First run — always compile.
+            return True
+        current_mtime = self._current_rtl_mtime()
+        return current_mtime > self._last_compile_mtime
+
     async def run_simulation(self, steps: list[dict[str, Any]]) -> dict[str, Any]:
         """Execute the I2C simulation for the given test steps.
 
@@ -115,6 +148,11 @@ class SimulationService:
     ) -> dict[str, Any]:
         """Launch test_runner.py as a subprocess and return the parsed result.
 
+        Checks the in-memory build cache before invoking the runner.  When
+        the RTL sources have not changed since the last successful compile,
+        passes ``--skip-build`` to avoid re-running Icarus compilation.
+        After a fresh compile the cache timestamp is updated.
+
         Parameters
         ----------
         input_path:
@@ -134,12 +172,21 @@ class SimulationService:
         RuntimeError
             If the process fails and no valid result JSON is available.
         """
+        # Decide whether we need to (re)compile before running.
+        compile_needed = self._needs_compile()
+        # Snapshot the current max mtime now — before the subprocess runs —
+        # so that any file touched while the simulation is running still
+        # triggers a recompile on the next call.
+        snapshot_mtime = self._current_rtl_mtime()
+
         cmd = [
             sys.executable,
             str(_TEST_RUNNER),
             "--input", input_path,
             "--output", output_path,
         ]
+        if not compile_needed:
+            cmd.append("--skip-build")
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -170,6 +217,11 @@ class SimulationService:
         result = self._read_result_json(pathlib.Path(output_path))
 
         if result is not None:
+            # Update the compile cache timestamp only when we actually ran a
+            # fresh compile.  If we skipped the build we do not touch the
+            # stored mtime — the cache remains valid.
+            if compile_needed:
+                self._last_compile_mtime = snapshot_mtime
             return result
 
         # No result file — surface stderr for diagnostics.
