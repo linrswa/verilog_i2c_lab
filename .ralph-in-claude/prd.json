@@ -1,0 +1,243 @@
+{
+  "project": "I2C Demo Platform",
+  "branchName": "ralph/phase1-cocotb-layer",
+  "baseBranch": "main",
+  "sourcePrd": ".ralph-in-claude/tasks/prd-phase1-cocotb-layer.md",
+  "description": "Phase 1 - Verilog RTL modification (256-byte slave) + cocotb transaction driver + JSON test runner with CLI",
+  "conflictStrategy": "conservative",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Slave Register File 擴展至 256 bytes",
+      "description": "As a developer, I want the I2C slave to have a 256-byte register file with auto-increment wrap so that it behaves like a simplified EEPROM storage.",
+      "acceptanceCriteria": [
+        "i2c_slave.v 的 register_file 改為 reg [7:0] register_file [0:255]",
+        "reg_addr 改為 8-bit，write 時 auto-increment 並 wrap 回 0（addr 255 → 0）",
+        "read 時同樣 auto-increment wrap",
+        "不模擬 page write boundary 或 write cycle delay（簡化版）",
+        "原有的 I2C protocol 行為（ACK/NACK、start/stop detection）不受影響",
+        "使用 iverilog 編譯無 error/warning"
+      ],
+      "dependsOn": [],
+      "sharedFiles": [
+        { "file": "backend/sim/rtl/i2c_slave.v", "conflictType": "structural-modify", "reason": "modifies register file size and address logic" }
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "修改 backend/sim/rtl/i2c_slave.v。將 register_file 從現有大小擴展到 [0:255]，reg_addr 改為 8-bit。auto-increment wrap 邏輯：addr 255 之後 wrap 回 0。保持所有現有 I2C protocol 行為不變。"
+    },
+    {
+      "id": "US-002",
+      "title": "i2c_top.v 適配更新",
+      "description": "As a developer, I want i2c_top.v to correctly instantiate the updated slave module so that the system-level simulation works with 256-byte storage.",
+      "acceptanceCriteria": [
+        "i2c_top.v 正確連接更新後的 i2c_slave",
+        "cocotb wrapper (i2c_system_wrapper.v) 與 i2c_top.v 相容",
+        "整個 RTL hierarchy 可用 iverilog 成功編譯"
+      ],
+      "dependsOn": ["US-001"],
+      "sharedFiles": [
+        { "file": "backend/sim/rtl/i2c_top.v", "conflictType": "structural-modify", "reason": "may need port changes for updated slave" },
+        { "file": "backend/sim/tb/i2c_system_wrapper.v", "conflictType": "structural-modify", "reason": "may need wrapper updates" }
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "檢查 i2c_top.v 是否需要因 slave 介面變更而修改。確認 i2c_system_wrapper.v 暴露正確的信號給 cocotb。用 iverilog 編譯驗證：iverilog -o test backend/sim/rtl/*.v backend/sim/tb/i2c_system_wrapper.v"
+    },
+    {
+      "id": "US-003",
+      "title": "I2CDriver 基礎框架",
+      "description": "As a developer, I want a Python class I2CDriver that wraps cocotb DUT signals so that I can perform I2C operations at transaction level without manually toggling signals.",
+      "acceptanceCriteria": [
+        "建立 backend/sim/i2c_driver.py",
+        "I2CDriver.__init__(self, dut) 正確取得 DUT reference",
+        "async def reset(self) 執行系統 reset 並等待穩定",
+        "async def delay(self, cycles) 等待指定 clock cycles",
+        "所有 async method 使用 cocotb await 語法",
+        "Python syntax check passes (python -m py_compile)"
+      ],
+      "dependsOn": ["US-002"],
+      "sharedFiles": [
+        { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "main driver file, multiple stories add methods" }
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "建立 backend/sim/i2c_driver.py。需要先讀取現有的 i2c_master.v 了解控制信號介面（cmd, data_in, addr, busy 等 port）。Driver 透過設定 master 的控制信號來驅動 I2C transaction。使用 cocotb.triggers 的 RisingEdge, Timer 等。參考現有 cocotb 測試檔案（test_i2c_system.py）了解信號操作方式。"
+    },
+    {
+      "id": "US-004",
+      "title": "I2CDriver Write 操作",
+      "description": "As a developer, I want write_bytes(addr, reg, data) to write N bytes to the I2C slave so that I can programmatically store data.",
+      "acceptanceCriteria": [
+        "async def write_bytes(self, addr, reg, data) 完成實作",
+        "正確設定 slave address、register pointer、data bytes",
+        "透過 DUT 信號觸發 I2C master 執行 write transaction",
+        "回傳是否收到 ACK（偵測 NACK error）",
+        "支援寫入 1-256 bytes",
+        "Python syntax check passes (python -m py_compile)"
+      ],
+      "dependsOn": ["US-003"],
+      "sharedFiles": [
+        { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "adds write_bytes method" }
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "在 i2c_driver.py 中新增 write_bytes 方法。I2C write transaction 流程：設定 slave addr → 發送 reg pointer byte → 逐一發送 data bytes。需等待 master busy 信號降低後才能送下一個 byte。"
+    },
+    {
+      "id": "US-005",
+      "title": "I2CDriver Read 操作",
+      "description": "As a developer, I want read_bytes(addr, reg, n) to read N bytes from the I2C slave so that I can verify stored data.",
+      "acceptanceCriteria": [
+        "async def read_bytes(self, addr, reg, n) -> list[int] 完成實作",
+        "先寫入 register pointer（write transaction），再發 read transaction 讀回 data",
+        "正確處理 repeated start 或 stop-start 序列",
+        "回傳讀取的 byte list",
+        "支援讀取 1-256 bytes",
+        "Python syntax check passes (python -m py_compile)"
+      ],
+      "dependsOn": ["US-004"],
+      "sharedFiles": [
+        { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "adds read_bytes method" }
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "在 i2c_driver.py 中新增 read_bytes 方法。I2C read 流程：先 write transaction 送 slave addr + reg pointer，再 read transaction 送 slave addr (read mode) 讀回 n bytes。參考現有 test_i2c_system.py 的讀取邏輯。"
+    },
+    {
+      "id": "US-006",
+      "title": "I2CDriver Scan 與 Register Dump",
+      "description": "As a developer, I want scan(addr) and get_register_dump() utility methods for debugging.",
+      "acceptanceCriteria": [
+        "async def scan(self, addr) -> bool 送出 write transaction 檢查 ACK",
+        "回傳 True 表示該 address 有 slave 回應，False 表示 NACK",
+        "async def get_register_dump(self) -> dict 讀取 slave 內部 register_file 狀態",
+        "register dump 透過直接存取 DUT hierarchy (dut.slave.register_file) 取得",
+        "Python syntax check passes (python -m py_compile)"
+      ],
+      "dependsOn": ["US-004"],
+      "sharedFiles": [
+        { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "adds scan and get_register_dump methods" }
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "在 i2c_driver.py 中新增 scan 和 get_register_dump 方法。scan 透過發送一個 write transaction 並檢查 ACK/NACK 來偵測 slave 是否存在。get_register_dump 直接透過 cocotb DUT hierarchy 存取 slave 的 register_file array。"
+    },
+    {
+      "id": "US-007",
+      "title": "JSON Test Sequence Parser",
+      "description": "As a developer, I want a test runner that parses JSON test sequences into executable cocotb operations so that tests can be defined declaratively.",
+      "acceptanceCriteria": [
+        "建立 backend/sim/test_runner.py",
+        "支援以下 operation types: reset, write_bytes, read_bytes, scan, delay",
+        "正確解析 hex string（如 0x50）為 integer",
+        "expect 欄位為 optional，有提供時進行比對",
+        "無效的 operation type 回傳明確錯誤訊息",
+        "Python syntax check passes (python -m py_compile)"
+      ],
+      "dependsOn": ["US-005", "US-006"],
+      "sharedFiles": [
+        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "main test runner file" }
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "建立 backend/sim/test_runner.py。JSON input 格式參考 PRD 中的範例。每個 step 是一個 dict，包含 op 欄位和對應參數。hex string 用 int(val, 16) 解析。import I2CDriver 來執行實際操作。"
+    },
+    {
+      "id": "US-008",
+      "title": "Test Runner 執行與結果輸出",
+      "description": "As a developer, I want the test runner to execute a parsed test sequence and produce structured JSON results so that I can programmatically check pass/fail.",
+      "acceptanceCriteria": [
+        "執行每個 step 並記錄 status (ok / error)",
+        "read_bytes 結果包含 data 欄位（hex string list）",
+        "有 expect 時包含 match 欄位（boolean）",
+        "scan 結果包含 found 欄位",
+        "最終結果包含 passed（全部 step 通過）、steps、register_dump、vcd_path",
+        "輸出格式符合 PRD 中定義的 JSON schema",
+        "Python syntax check passes (python -m py_compile)"
+      ],
+      "dependsOn": ["US-007"],
+      "sharedFiles": [
+        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "adds execution and result logic" }
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "在 test_runner.py 中實作執行邏輯。每個 step 執行後記錄結果到 steps list。最後呼叫 get_register_dump() 取得 register 狀態。passed = 所有 step 的 match 都為 True（或沒有 expect）。"
+    },
+    {
+      "id": "US-009",
+      "title": "cocotb Runner Integration",
+      "description": "As a developer, I want test_runner.py to use cocotb's Python runner API to compile and execute simulation so that no Makefile is needed.",
+      "acceptanceCriteria": [
+        "使用 cocotb.runner.get_runner('icarus') 建立 runner",
+        "正確指定 RTL source files（i2c_master.v, i2c_slave.v, i2c_top.v）和 wrapper",
+        "產生 VCD waveform 檔案",
+        "simulation 完成後可取得結果",
+        "Python syntax check passes (python -m py_compile)"
+      ],
+      "dependsOn": ["US-008"],
+      "sharedFiles": [
+        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "adds cocotb runner integration" }
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "使用 cocotb.runner Python API。範例：runner = get_runner('icarus'); runner.build(verilog_sources=[...], toplevel='i2c_system_wrapper'); runner.test(toplevel='i2c_system_wrapper', py_module='test_runner')。需要建立一個 cocotb test function 作為 entry point，在其中呼叫 test runner 邏輯。"
+    },
+    {
+      "id": "US-010",
+      "title": "CLI Entry Point",
+      "description": "As a developer, I want a CLI command python test_runner.py --input test.json to run tests from terminal so that I can validate the system without writing Python code.",
+      "acceptanceCriteria": [
+        "使用 argparse 提供 --input 參數接受 JSON 檔案路徑",
+        "可選 --output 參數指定結果輸出路徑（預設 stdout）",
+        "可選 --vcd-dir 參數指定 VCD 輸出目錄",
+        "執行完畢印出 JSON 結果",
+        "非零 exit code 表示測試失敗或執行錯誤",
+        "Python syntax check passes (python -m py_compile)"
+      ],
+      "dependsOn": ["US-009"],
+      "sharedFiles": [
+        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "adds CLI entry point" }
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "在 test_runner.py 中加入 if __name__ == '__main__' 區塊。使用 argparse 解析 --input, --output, --vcd-dir 參數。讀取 JSON 檔案後呼叫 cocotb runner 執行 simulation，將結果寫入 output 或 stdout。"
+    },
+    {
+      "id": "US-011",
+      "title": "完整測試組",
+      "description": "As a developer, I want a comprehensive test suite to verify all driver and runner functionality so that I can be confident the system works correctly.",
+      "acceptanceCriteria": [
+        "測試 write + read back 驗證（單 byte 和多 byte）",
+        "測試 address boundary（addr 0 和 addr 255）",
+        "測試 multi-byte burst write/read（連續多 bytes）",
+        "測試 address wrap-around（寫到 addr 255 後 wrap 回 0）",
+        "測試錯誤 address 的 NACK 回應",
+        "測試 scan 功能（存在與不存在的 address）",
+        "所有測試通過"
+      ],
+      "dependsOn": ["US-009"],
+      "sharedFiles": [],
+      "priority": 10,
+      "passes": false,
+      "notes": "建立 cocotb test module 執行完整測試。可建立在 backend/sim/tests/test_i2c_cocotb.py 中，使用 @cocotb.test() decorator。每個測試案例使用 I2CDriver 執行操作並驗證結果。"
+    },
+    {
+      "id": "US-012",
+      "title": "範例 JSON 測試檔案",
+      "description": "As a developer, I want 2-3 example JSON test files so that Phase 2 FastAPI integration has ready-made test data.",
+      "acceptanceCriteria": [
+        "backend/sim/templates/basic_write_read.json - 基本 write + read back",
+        "backend/sim/templates/full_test.json - 完整功能測試（所有 op types）",
+        "backend/sim/templates/stress_test.json - boundary + burst + wrap-around 測試",
+        "每個 JSON 檔案格式符合 test runner 的 input schema",
+        "用 CLI 執行每個範例檔案都能通過"
+      ],
+      "dependsOn": ["US-010"],
+      "sharedFiles": [],
+      "priority": 11,
+      "passes": false,
+      "notes": "建立 backend/sim/templates/ 目錄。JSON 格式參考 PRD 中的範例：[{op: 'reset'}, {op: 'write_bytes', addr: '0x50', reg: '0x00', data: ['0xA5']}, ...]。stress_test.json 應包含 addr 0/255 boundary、多 byte burst、wrap-around 測試。"
+    }
+  ]
+}
