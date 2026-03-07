@@ -180,7 +180,7 @@
         { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "adds cocotb runner integration" }
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "使用 cocotb.runner Python API。範例：runner = get_runner('icarus'); runner.build(verilog_sources=[...], toplevel='i2c_system_wrapper'); runner.test(toplevel='i2c_system_wrapper', py_module='test_runner')。需要建立一個 cocotb test function 作為 entry point，在其中呼叫 test runner 邏輯。"
     },
     {
@@ -200,7 +200,7 @@
         { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "adds CLI entry point" }
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": "在 test_runner.py 中加入 if __name__ == '__main__' 區塊。使用 argparse 解析 --input, --output, --vcd-dir 參數。讀取 JSON 檔案後呼叫 cocotb runner 執行 simulation，將結果寫入 output 或 stdout。"
     },
     {
@@ -219,7 +219,7 @@
       "dependsOn": ["US-009"],
       "sharedFiles": [],
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "notes": "建立 cocotb test module 執行完整測試。可建立在 backend/sim/tests/test_i2c_cocotb.py 中，使用 @cocotb.test() decorator。每個測試案例使用 I2CDriver 執行操作並驗證結果。"
     },
     {
@@ -236,7 +236,7 @@
       "dependsOn": ["US-010"],
       "sharedFiles": [],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "建立 backend/sim/templates/ 目錄。JSON 格式參考 PRD 中的範例：[{op: 'reset'}, {op: 'write_bytes', addr: '0x50', reg: '0x00', data: ['0xA5']}, ...]。stress_test.json 應包含 addr 0/255 boundary、多 byte burst、wrap-around 測試。"
     }
   ]

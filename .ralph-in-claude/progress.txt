@@ -53,3 +53,27 @@
 - Files changed: backend/sim/test_runner.py
 - Learnings: passed = all steps ok AND all matches true. build_final_result is pure sync for testability.
 ---
+
+## 2026-03-07T21:25+0800 - US-009: cocotb Runner Integration
+- Added run_simulation() using cocotb.runner.get_runner('icarus') and @cocotb.test() entry point. VCD via existing $dumpfile in wrapper.
+- Files changed: backend/sim/test_runner.py
+- Learnings: cocotb 2.x uses hdl_toplevel (not toplevel) and test_module (not py_module). Wrapper already has $dumpfile/$dumpvars.
+---
+
+## 2026-03-07T21:27+0800 - US-010: CLI Entry Point
+- Added argparse CLI with --input, --output, --vcd-dir to test_runner.py. Non-zero exit on failure.
+- Files changed: backend/sim/test_runner.py
+- Learnings: run_simulation() already accepts result_json_path/steps_json kwargs. CLI catches SystemExit from cocotb runner.
+---
+
+## 2026-03-07T21:27+0800 - US-011: 完整測試組
+- Created backend/sim/tests/test_i2c_cocotb.py with 10 @cocotb.test() cases. All 10 pass. Fixed 2 bugs: write_bytes timing in i2c_driver.py, false STOP condition in i2c_slave.v.
+- Files changed: backend/sim/tests/test_i2c_cocotb.py, backend/sim/i2c_driver.py, backend/sim/rtl/i2c_slave.v
+- Learnings: Slave needed in_read_ack_window to suppress false STOP during read ACK. write_bytes needed timing fix for byte_count observation.
+---
+
+## 2026-03-07T22:01+0800 - US-012: 範例 JSON 測試檔案
+- Created 3 template JSON files: basic_write_read.json, full_test.json, stress_test.json (31 total steps)
+- Files changed: backend/sim/templates/basic_write_read.json, full_test.json, stress_test.json
+- Learnings: Use {"steps": [...]} dict format for extensibility. scan expect must be JSON boolean.
+---
