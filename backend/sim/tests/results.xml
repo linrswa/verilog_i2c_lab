@@ -1,0 +1,15 @@
+<testsuites name="results">
+  <testsuite name="all" package="all">
+    <property name="random_seed" value="1772892005" />
+    <testcase name="test_single_byte_write_read" classname="test_i2c_cocotb" file="/Users/rswa/Dev/verilog/i2c_demo/.ralph-in-claude/worktrees/US-011/backend/sim/tests/test_i2c_cocotb.py" lineno="92" time="0.04531502723693848" sim_time_ns="34435.001" ratio_time="759902.4672312314" />
+    <testcase name="test_multi_byte_write_read" classname="test_i2c_cocotb" file="/Users/rswa/Dev/verilog/i2c_demo/.ralph-in-claude/worktrees/US-011/backend/sim/tests/test_i2c_cocotb.py" lineno="116" time="0.08211207389831543" sim_time_ns="61440.00000000001" ratio_time="748245.6243412514" />
+    <testcase name="test_address_boundary_addr0" classname="test_i2c_cocotb" file="/Users/rswa/Dev/verilog/i2c_demo/.ralph-in-claude/worktrees/US-011/backend/sim/tests/test_i2c_cocotb.py" lineno="140" time="0.04581189155578613" sim_time_ns="34440.0" ratio_time="751769.8752530589" />
+    <testcase name="test_address_boundary_addr255" classname="test_i2c_cocotb" file="/Users/rswa/Dev/verilog/i2c_demo/.ralph-in-claude/worktrees/US-011/backend/sim/tests/test_i2c_cocotb.py" lineno="164" time="0.04457998275756836" sim_time_ns="34439.999999999985" ratio_time="772544.040388914" />
+    <testcase name="test_burst_write_read_14bytes" classname="test_i2c_cocotb" file="/Users/rswa/Dev/verilog/i2c_demo/.ralph-in-claude/worktrees/US-011/backend/sim/tests/test_i2c_cocotb.py" lineno="188" time="0.20830631256103516" sim_time_ns="151440.0" ratio_time="727006.2925031475" />
+    <testcase name="test_burst_write_read_16bytes" classname="test_i2c_cocotb" file="/Users/rswa/Dev/verilog/i2c_demo/.ralph-in-claude/worktrees/US-011/backend/sim/tests/test_i2c_cocotb.py" lineno="213" time="0.26460909843444824" sim_time_ns="194940.0" ratio_time="736709.3616710712" />
+    <testcase name="test_address_wrap_around" classname="test_i2c_cocotb" file="/Users/rswa/Dev/verilog/i2c_demo/.ralph-in-claude/worktrees/US-011/backend/sim/tests/test_i2c_cocotb.py" lineno="238" time="0.10543680191040039" sim_time_ns="82440.00000000006" ratio_time="781890.1797690821" />
+    <testcase name="test_nack_wrong_address" classname="test_i2c_cocotb" file="/Users/rswa/Dev/verilog/i2c_demo/.ralph-in-claude/worktrees/US-011/backend/sim/tests/test_i2c_cocotb.py" lineno="279" time="0.006810903549194336" sim_time_ns="5440.0" ratio_time="798719.2830888787" />
+    <testcase name="test_scan_existing_address" classname="test_i2c_cocotb" file="/Users/rswa/Dev/verilog/i2c_demo/.ralph-in-claude/worktrees/US-011/backend/sim/tests/test_i2c_cocotb.py" lineno="299" time="0.012442827224731445" sim_time_ns="10040.0" ratio_time="806890.573875721" />
+    <testcase name="test_scan_nonexistent_address" classname="test_i2c_cocotb" file="/Users/rswa/Dev/verilog/i2c_demo/.ralph-in-claude/worktrees/US-011/backend/sim/tests/test_i2c_cocotb.py" lineno="315" time="0.006750822067260742" sim_time_ns="5540.0" ratio_time="820640.7967508388" />
+  </testsuite>
+</testsuites>
