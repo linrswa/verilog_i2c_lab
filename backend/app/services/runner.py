@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -18,6 +19,13 @@ from typing import Any
 _BACKEND_DIR = pathlib.Path(__file__).parent.parent.parent.resolve()
 _SIM_DIR = _BACKEND_DIR / "sim"
 _TEST_RUNNER = _SIM_DIR / "test_runner.py"
+
+# RTL source files watched by US-003 (Build Caching).  Add any new .v files here.
+_RTL_SOURCES: list[pathlib.Path] = [
+    _SIM_DIR / "rtl" / "i2c_master.v",
+    _SIM_DIR / "rtl" / "i2c_slave.v",
+    _SIM_DIR / "rtl" / "i2c_top.v",
+]
 
 #: Default simulation timeout in seconds.
 DEFAULT_TIMEOUT: int = 60
@@ -42,6 +50,10 @@ class SimulationService:
             before raising :class:`TimeoutError`.  Defaults to 60 seconds.
         """
         self.timeout = timeout
+        # Build-cache state for US-003 (Hybrid Compile).
+        # Stores the max mtime seen across all RTL source files at the time of
+        # the last successful compile.  None means "never compiled".
+        self._last_compile_mtime: float | None = None
 
     async def run_simulation(self, steps: list[dict[str, Any]]) -> dict[str, Any]:
         """Execute the I2C simulation for the given test steps.
@@ -86,7 +98,6 @@ class SimulationService:
                 json.dump({"steps": steps}, fh)
 
             # Close the output fd; test_runner.py will write to the path.
-            import os
             os.close(output_fd)
 
             result = await self._invoke_runner(input_path, output_path)

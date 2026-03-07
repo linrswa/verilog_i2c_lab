@@ -46,3 +46,32 @@ def list_templates() -> List[dict[str, Any]]:
     if _cache is None:
         _cache = _load_templates()
     return _cache
+
+
+def get_template(template_id: str) -> Optional[dict[str, Any]]:
+    """Return the full content of a single template by ID, or None if not found.
+
+    Reads directly from disk each time so the caller always gets the latest
+    file content (the list cache is summary-only and omits the ``steps`` array).
+
+    Parameters
+    ----------
+    template_id:
+        The stem of the template filename (e.g. ``"basic_write_read"``).
+
+    Returns
+    -------
+    dict or None
+        Parsed template dict including the ``steps`` key, or ``None`` if the
+        template file does not exist or cannot be parsed.
+    """
+    path = _TEMPLATES_DIR / f"{template_id}.json"
+    if not path.exists():
+        return None
+    try:
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        # Ensure id is always present in the returned dict.
+        data.setdefault("id", template_id)
+        return data
+    except (json.JSONDecodeError, OSError):
+        return None
