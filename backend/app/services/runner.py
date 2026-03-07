@@ -30,6 +30,17 @@ _RTL_SOURCES: list[pathlib.Path] = [
 #: Default simulation timeout in seconds.
 DEFAULT_TIMEOUT: int = 60
 
+#: Maximum seconds a request may wait to acquire the simulation lock before
+#: the server gives up and returns HTTP 503.
+QUEUE_TIMEOUT: int = 120
+
+
+class QueueTimeoutError(Exception):
+    """Raised when a request waits longer than QUEUE_TIMEOUT for the lock.
+
+    Callers (route handlers) should catch this and return HTTP 503.
+    """
+
 
 class SimulationService:
     """Manages execution of the cocotb-based I2C simulation.
@@ -54,6 +65,10 @@ class SimulationService:
         # Stores the max mtime seen across all RTL source files at the time of
         # the last successful compile.  None means "never compiled".
         self._last_compile_mtime: float | None = None
+        # Single-concurrency gate (US-004).  asyncio.Lock serialises all calls
+        # to run_simulation so only one simulation runs at a time.  Concurrent
+        # callers wait in FIFO order (the default behaviour of asyncio.Lock).
+        self._sim_lock: asyncio.Lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Build-cache helpers
@@ -121,23 +136,41 @@ class SimulationService:
             If the subprocess exits with a non-zero status and no result JSON
             could be read back, or if the result JSON is malformed.
         """
-        # Create temp files up-front so we can guarantee cleanup in the
-        # finally block even if the subprocess launch itself fails.
-        input_fd, input_path = tempfile.mkstemp(suffix=".json", prefix="i2c_sim_input_")
-        output_fd, output_path = tempfile.mkstemp(suffix=".json", prefix="i2c_sim_output_")
+        # Acquire the single-concurrency lock (US-004).
+        # asyncio.wait_for raises asyncio.TimeoutError if the lock is not
+        # available within QUEUE_TIMEOUT seconds; we convert that to a
+        # QueueTimeoutError so route handlers can return HTTP 503.
         try:
-            # Write the input payload — test_runner.py accepts {"steps": [...]}
-            with open(input_fd, "w", encoding="utf-8") as fh:
-                json.dump({"steps": steps}, fh)
+            await asyncio.wait_for(
+                self._sim_lock.acquire(), timeout=QUEUE_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            raise QueueTimeoutError(
+                f"Server is busy — request waited {QUEUE_TIMEOUT} seconds for "
+                "the simulation queue and timed out. Please retry later."
+            )
 
-            # Close the output fd; test_runner.py will write to the path.
-            os.close(output_fd)
+        try:
+            # Create temp files up-front so we can guarantee cleanup in the
+            # finally block even if the subprocess launch itself fails.
+            input_fd, input_path = tempfile.mkstemp(suffix=".json", prefix="i2c_sim_input_")
+            output_fd, output_path = tempfile.mkstemp(suffix=".json", prefix="i2c_sim_output_")
+            try:
+                # Write the input payload — test_runner.py accepts {"steps": [...]}
+                with open(input_fd, "w", encoding="utf-8") as fh:
+                    json.dump({"steps": steps}, fh)
 
-            result = await self._invoke_runner(input_path, output_path)
-            return result
+                # Close the output fd; test_runner.py will write to the path.
+                os.close(output_fd)
+
+                result = await self._invoke_runner(input_path, output_path)
+                return result
+            finally:
+                self._remove_if_exists(pathlib.Path(input_path))
+                self._remove_if_exists(pathlib.Path(output_path))
         finally:
-            self._remove_if_exists(pathlib.Path(input_path))
-            self._remove_if_exists(pathlib.Path(output_path))
+            # Always release the lock — even if the simulation fails or times out.
+            self._sim_lock.release()
 
     # ------------------------------------------------------------------
     # Private helpers
