@@ -1,0 +1,31 @@
+# Progress Log — I2C Demo Platform
+
+## Codebase Patterns
+- Verilog 8-bit register arithmetic naturally wraps (255 + 1 = 0), no explicit modulo needed
+- reg_addr was already 8-bit in original design
+
+---
+
+## 2026-03-07T21:10+0800 - US-001: Slave Register File 擴展至 256 bytes
+- Changed register_file from [0:7] to [0:255] in i2c_slave.v. reg_addr already 8-bit, so wrap is automatic.
+- Files changed: backend/sim/rtl/i2c_slave.v
+- Learnings: 8-bit arithmetic overflow handles wrap-around naturally
+---
+
+## 2026-03-07T21:12+0800 - US-002: i2c_top.v 適配更新
+- No RTL changes needed — slave interface unchanged (only internal register depth changed). iverilog compiles clean.
+- Files changed: none
+- Learnings: Internal-only changes (register depth) don't affect port interfaces
+---
+
+## 2026-03-07T21:13+0800 - US-003: I2CDriver 基礎框架
+- Created backend/sim/i2c_driver.py with I2CDriver class: __init__, reset(), delay()
+- Files changed: backend/sim/i2c_driver.py
+- Learnings: Wrapper uses slave_addr_in (not slave_addr) for master target address. Reset pattern: 5-cycle assert, 5-cycle settle.
+---
+
+## 2026-03-07T21:15+0800 - US-004: I2CDriver Write 操作
+- Added write_bytes() to I2CDriver. Splits into chunks of 14 data bytes (num_bytes is 4-bit, max 15 minus 1 reg pointer). Monitors byte_count to feed data_in. Returns ACK/NACK status.
+- Files changed: backend/sim/i2c_driver.py
+- Learnings: num_bytes is 4-bit (max 15); master samples data_in during ACK HIGH_MID tick; done pulse is 1 cycle wide
+---

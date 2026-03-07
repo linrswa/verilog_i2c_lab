@@ -188,6 +188,118 @@ class I2CDriver:
         return True
 
     # ------------------------------------------------------------------
+    # Read operations
+    # ------------------------------------------------------------------
+
+    async def read_bytes(self, addr: int, reg: int, n: int) -> list:
+        """Read *n* bytes from *addr* starting at register *reg*.
+
+        The I2C read sequence for this master is a stop-start (two separate
+        transactions) pattern:
+
+        1. Write transaction (register pointer):
+               START | slave_addr+W | ACK | reg_byte | ACK | STOP
+        2. Read transaction:
+               START | slave_addr+R | ACK | data[0] | ACK | ... | data[n-1] | NACK | STOP
+
+        The hardware ``num_bytes`` field is 4-bit (range 1-15), so reads
+        longer than 15 bytes are split into multiple stop-start pairs.  The
+        slave auto-increments its register pointer after each byte sent, so
+        subsequent chunks supply the updated register address.
+
+        Parameters
+        ----------
+        addr:
+            7-bit I2C slave address.
+        reg:
+            8-bit register start address (register pointer byte).
+        n:
+            Number of bytes to read (1-256).
+
+        Returns
+        -------
+        list[int]
+            List of byte values read from the slave, in order.
+        """
+        if n <= 0:
+            return []
+
+        # Maximum bytes per hardware read transaction (num_bytes is 4-bit, max 15).
+        _MAX_READ_PER_TXN = 15
+
+        dut = self._dut
+        result: list = []
+        current_reg = reg & 0xFF
+        remaining = n
+
+        while remaining > 0:
+            chunk_size = min(remaining, _MAX_READ_PER_TXN)
+
+            # --- Phase 1: Write transaction to set the register pointer ---
+            dut.slave_addr_in.value = addr
+            dut.rw.value = 0
+            dut.num_bytes.value = 1          # only the register pointer byte
+            dut.repeated_start_in.value = 0
+            dut.data_in.value = current_reg
+
+            dut.start.value = 1
+            await RisingEdge(dut.clk)
+            dut.start.value = 0
+
+            # Wait for done from the write transaction.
+            while True:
+                await RisingEdge(dut.clk)
+                if dut.done.value == 1:
+                    break
+
+            # If the slave NACKed the address, abort and return what we have.
+            if int(dut.ack_error.value) == 1:
+                return result
+
+            # Brief inter-transaction gap (stop-start).
+            await ClockCycles(dut.clk, 10)
+
+            # --- Phase 2: Read transaction to collect data bytes ---
+            dut.slave_addr_in.value = addr
+            dut.rw.value = 1
+            dut.num_bytes.value = chunk_size
+            dut.repeated_start_in.value = 0
+
+            dut.start.value = 1
+            await RisingEdge(dut.clk)
+            dut.start.value = 0
+
+            # Collect bytes as they arrive via data_valid.
+            chunk_received: list = []
+            while len(chunk_received) < chunk_size:
+                await RisingEdge(dut.clk)
+                if dut.done.value == 1:
+                    # done fired before all bytes arrived — hardware finished early
+                    break
+                if dut.data_valid.value == 1:
+                    chunk_received.append(int(dut.data_out.value))
+
+            # Wait for done if we exited the loop because all data was captured
+            # before the done pulse.
+            if len(chunk_received) >= chunk_size:
+                while True:
+                    await RisingEdge(dut.clk)
+                    if dut.done.value == 1:
+                        break
+
+            result.extend(chunk_received)
+            remaining -= len(chunk_received)
+
+            # Advance register pointer by bytes actually received (slave wraps at 256).
+            current_reg = (current_reg + len(chunk_received)) & 0xFF
+
+            # Brief gap before next stop-start pair if more chunks remain.
+            if remaining > 0:
+                await ClockCycles(dut.clk, 10)
+
+        return result
+
+    # ------------------------------------------------------------------
     # Convenience properties
     # ------------------------------------------------------------------
 

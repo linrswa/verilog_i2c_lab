@@ -23,7 +23,7 @@
         { "file": "backend/sim/rtl/i2c_slave.v", "conflictType": "structural-modify", "reason": "modifies register file size and address logic" }
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "修改 backend/sim/rtl/i2c_slave.v。將 register_file 從現有大小擴展到 [0:255]，reg_addr 改為 8-bit。auto-increment wrap 邏輯：addr 255 之後 wrap 回 0。保持所有現有 I2C protocol 行為不變。"
     },
     {
@@ -41,7 +41,7 @@
         { "file": "backend/sim/tb/i2c_system_wrapper.v", "conflictType": "structural-modify", "reason": "may need wrapper updates" }
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "檢查 i2c_top.v 是否需要因 slave 介面變更而修改。確認 i2c_system_wrapper.v 暴露正確的信號給 cocotb。用 iverilog 編譯驗證：iverilog -o test backend/sim/rtl/*.v backend/sim/tb/i2c_system_wrapper.v"
     },
     {
@@ -61,7 +61,7 @@
         { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "main driver file, multiple stories add methods" }
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "建立 backend/sim/i2c_driver.py。需要先讀取現有的 i2c_master.v 了解控制信號介面（cmd, data_in, addr, busy 等 port）。Driver 透過設定 master 的控制信號來驅動 I2C transaction。使用 cocotb.triggers 的 RisingEdge, Timer 等。參考現有 cocotb 測試檔案（test_i2c_system.py）了解信號操作方式。"
     },
     {
@@ -81,7 +81,7 @@
         { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "adds write_bytes method" }
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "在 i2c_driver.py 中新增 write_bytes 方法。I2C write transaction 流程：設定 slave addr → 發送 reg pointer byte → 逐一發送 data bytes。需等待 master busy 信號降低後才能送下一個 byte。"
     },
     {
