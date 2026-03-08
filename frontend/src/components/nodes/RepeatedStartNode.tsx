@@ -4,6 +4,7 @@ import type { NodeProps, Node } from '@xyflow/react'
 export interface RepeatedStartNodeData {
   status?: 'ok' | 'fail'
   warning?: string
+  nodeTooltip?: string
   [key: string]: unknown
 }
 
@@ -12,8 +13,12 @@ type RepeatedStartNode = Node<RepeatedStartNodeData>
 export function RepeatedStartNode({ data }: NodeProps<RepeatedStartNode>) {
   const status = data.status
   const warning = data.warning as string | undefined
+  const nodeTooltip = data.nodeTooltip as string | undefined
   return (
-    <div className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-orange-500'} bg-orange-50 shadow-sm min-w-[140px]`}>
+    <div
+      title={nodeTooltip}
+      className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-orange-500'} bg-orange-50 shadow-sm w-full overflow-hidden`}
+    >
       {/* Input handle — top */}
       <Handle
         type="target"

@@ -4,6 +4,7 @@ import type { NodeProps, Node } from '@xyflow/react'
 export interface StartNodeData {
   status?: 'ok' | 'fail'
   warning?: string
+  nodeTooltip?: string
   [key: string]: unknown
 }
 
@@ -12,8 +13,12 @@ type StartNode = Node<StartNodeData>
 export function StartNode({ data }: NodeProps<StartNode>) {
   const status = data.status
   const warning = data.warning as string | undefined
+  const nodeTooltip = data.nodeTooltip as string | undefined
   return (
-    <div className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-emerald-500'} bg-emerald-50 shadow-sm min-w-[140px]`}>
+    <div
+      title={nodeTooltip}
+      className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-emerald-500'} bg-emerald-50 shadow-sm w-full overflow-hidden`}
+    >
       {/* Header */}
       <div className={`${warning ? 'bg-yellow-400' : 'bg-emerald-500'} text-white text-xs font-semibold px-3 py-1 rounded-t flex items-center justify-between`}>
         <span>START</span>

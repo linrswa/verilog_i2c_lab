@@ -7,6 +7,7 @@ export interface RecvByteNodeData {
   receivedData?: string
   status?: 'ok' | 'fail'
   warning?: string
+  nodeTooltip?: string
   [key: string]: unknown
 }
 
@@ -27,9 +28,13 @@ export function RecvByteNode({ id, data }: NodeProps<RecvByteNode>) {
 
   const status = data.status
   const warning = data.warning as string | undefined
+  const nodeTooltip = data.nodeTooltip as string | undefined
 
   return (
-    <div className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-teal-500'} bg-teal-50 shadow-sm min-w-[180px]`}>
+    <div
+      title={nodeTooltip}
+      className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-teal-500'} bg-teal-50 shadow-sm w-full overflow-hidden`}
+    >
       {/* Input handle — top */}
       <Handle
         type="target"

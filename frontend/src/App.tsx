@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -33,25 +33,39 @@ import {
 } from './lib/useFlowPersistence'
 import { chainHasErrors } from './lib/validate'
 import { validateProtocolFlow } from './lib/protocol-validate'
+import { buildTimeToX, NODE_WIDTH as WAVEFORM_NODE_WIDTH, GAP as WAVEFORM_GAP, LAYOUT_Y as WAVEFORM_LAYOUT_Y } from './lib/waveform'
 
 /** Status of each step after simulation: 'ok' | 'fail', keyed by node ID. */
 type NodeStatusMap = Map<string, 'ok' | 'fail'>
 
 // ── Layout constants ──────────────────────────────────────────────────────────
-const NODE_WIDTH = 160
-const GAP = 40
-const LAYOUT_Y = 200
+// Re-export from lib/waveform so they remain the single source of truth.
+const NODE_WIDTH = WAVEFORM_NODE_WIDTH
+const GAP = WAVEFORM_GAP
+const LAYOUT_Y = WAVEFORM_LAYOUT_Y
 
 /**
  * Apply horizontal auto-layout: all nodes share the same y-coordinate and
  * are spaced evenly along the x-axis.  Returns a new nodes array — does not
  * mutate the input.
+ *
+ * Also strips any post-simulation time-based layout properties (style.width,
+ * nodeTooltip) so nodes revert to their default appearance.
  */
 function applyHorizontalLayout(nodes: Node[]): Node[] {
-  return nodes.map((node, i) => ({
-    ...node,
-    position: { x: i * (NODE_WIDTH + GAP), y: LAYOUT_Y },
-  }))
+  return nodes.map((node, i) => {
+    // Strip time-based width override and tooltip from post-simulation layout
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { width: _removedWidth, ...styleWithoutWidth } = (node.style as Record<string, unknown> | undefined) ?? {}
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { nodeTooltip: _removedTooltip, ...dataWithoutTooltip } = node.data as Record<string, unknown>
+    return {
+      ...node,
+      position: { x: i * (NODE_WIDTH + GAP), y: LAYOUT_Y },
+      style: Object.keys(styleWithoutWidth).length > 0 ? styleWithoutWidth as React.CSSProperties : undefined,
+      data: dataWithoutTooltip,
+    }
+  })
 }
 
 /**
@@ -250,6 +264,8 @@ export default function App() {
   const [runError, setRunError] = useState<string | null>(null)
   // Tracks whether FlowCanvas has already applied the saved viewport
   const [viewportRestored, setViewportRestored] = useState(false)
+  // Ref to the canvas column container — used to measure width for time-based node layout
+  const canvasColumnRef = useRef<HTMLDivElement>(null)
   /**
    * Clear all node status badges by removing the `status` field from node data.
    * Called whenever the flow is modified so stale badges don't persist.
@@ -332,20 +348,23 @@ export default function App() {
   /**
    * Append a new node at the end of the sequence with the correct horizontal
    * position, then rebuild edges.
+   * Also clears any post-simulation time-based layout (reverts to default spacing).
    */
   const handleAppendNode = useCallback(
     (nodeType: string) => {
       clearNodeStatuses()
+      setSimulationResult(null)
       setNodes((existingNodes) => {
         const newNode: Node = {
           id: `${nodeType}-${Date.now()}`,
           type: nodeType,
-          position: { x: existingNodes.length * (NODE_WIDTH + GAP), y: LAYOUT_Y },
+          position: { x: 0, y: LAYOUT_Y },
           data: buildDefaultData(nodeType),
         }
         const updated = [...existingNodes, newNode]
-        setEdges(buildAutoEdges(updated))
-        return updated
+        const laidOut = applyHorizontalLayout(updated)
+        setEdges(buildAutoEdges(laidOut))
+        return laidOut
       })
     },
     [clearNodeStatuses],
@@ -520,10 +539,59 @@ export default function App() {
           resultIdx++
         }
       }
-      // Write status into each node's data so custom node components can render badges
-      setNodes((nds) =>
-        nds.map((n) => ({ ...n, data: { ...n.data, status: statusMap.get(n.id) } })),
-      )
+
+      // Build node time-range map by aligning result.steps with orderedNodeIds.
+      // The backend auto-prepends a `reset` step, so skip it if present at index 0.
+      // After that, result.steps has one entry per user step (including framing ops)
+      // in the same order as orderedNodeIds.
+      const nodeTimeRangeMap = new Map<string, [number, number]>()
+      let rIdx = result.steps[0]?.op === 'reset' ? 1 : 0
+      for (let i = 0; i < orderedNodeIds.length && rIdx < result.steps.length; i++) {
+        const nodeId = orderedNodeIds[i]
+        const resultStep = result.steps[rIdx]
+        if (resultStep?.time_range_ps) {
+          nodeTimeRangeMap.set(nodeId, resultStep.time_range_ps)
+        }
+        rIdx++
+      }
+
+      // Apply time-based layout if we have timing data and a total sim time.
+      // Canvas width is measured from the canvas column container; fall back to 1200px.
+      const totalDurationPs = result.sim_time_total_ps ?? 0
+      const canvasWidthPx = canvasColumnRef.current?.clientWidth ?? 1200
+
+      if (totalDurationPs > 0 && nodeTimeRangeMap.size > 0) {
+        const timeToX = buildTimeToX({ totalDurationPs, canvasWidthPx })
+
+        setNodes((nds) =>
+          nds.map((n) => {
+            const timeRange = nodeTimeRangeMap.get(n.id)
+            const statusUpdate = { status: statusMap.get(n.id) }
+            if (!timeRange) {
+              return { ...n, data: { ...n.data, ...statusUpdate } }
+            }
+            const [startPs, endPs] = timeRange
+            const x = timeToX(startPs)
+            const width = Math.max(timeToX(endPs) - x, 1)
+
+            // Build a tooltip title so narrow nodes still surface their details
+            const tipLines: string[] = [`Start: ${startPs.toLocaleString()} ps`, `End: ${endPs.toLocaleString()} ps`, `Duration: ${(endPs - startPs).toLocaleString()} ps`]
+            const nodeTooltip = tipLines.join('\n')
+
+            return {
+              ...n,
+              position: { x, y: LAYOUT_Y },
+              style: { ...n.style, width },
+              data: { ...n.data, ...statusUpdate, nodeTooltip },
+            }
+          }),
+        )
+      } else {
+        // No timing data — just write status badges
+        setNodes((nds) =>
+          nds.map((n) => ({ ...n, data: { ...n.data, status: statusMap.get(n.id) } })),
+        )
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred'
       setRunError(message)
@@ -559,7 +627,7 @@ export default function App() {
         <Sidebar onAddNode={handleAppendNode} />
 
         {/* Canvas column: ReactFlow canvas on top, WaveformPanel below */}
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div ref={canvasColumnRef} className="flex flex-col flex-1 overflow-hidden">
           {/* ReactFlowProvider enables useReactFlow() inside FlowCanvas */}
           <ReactFlowProvider>
             <FlowCanvas

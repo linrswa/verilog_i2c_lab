@@ -9,6 +9,7 @@ export interface SendByteNodeData {
   status?: 'ok' | 'fail'
   warning?: string
   addrHelper?: string
+  nodeTooltip?: string
   [key: string]: unknown
 }
 
@@ -52,9 +53,13 @@ export function SendByteNode({ id, data }: NodeProps<SendByteNode>) {
   const helperText = (data.addrHelper as string | undefined) ?? decodeAddressByte(data.data)
   const status = data.status
   const warning = data.warning as string | undefined
+  const nodeTooltip = data.nodeTooltip as string | undefined
 
   return (
-    <div className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-purple-500'} bg-purple-50 shadow-sm min-w-[180px]`}>
+    <div
+      title={nodeTooltip}
+      className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-purple-500'} bg-purple-50 shadow-sm w-full overflow-hidden`}
+    >
       {/* Input handle — top */}
       <Handle
         type="target"
