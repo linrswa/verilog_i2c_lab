@@ -8,7 +8,7 @@ import {
   MarkerType,
   useReactFlow,
 } from '@xyflow/react'
-import type { Node, Edge, NodeTypes, NodeChange, EdgeChange } from '@xyflow/react'
+import type { Node, Edge, NodeTypes, NodeChange, EdgeChange, NodeDragHandler } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
 import { Toolbar } from './components/Toolbar'
@@ -179,6 +179,8 @@ function FlowCanvas({
   edges,
   onNodesChange,
   onEdgesChange,
+  onNodeDrag,
+  onNodeDragStop,
   initialViewportRestored,
   onViewportRestored,
 }: {
@@ -186,6 +188,8 @@ function FlowCanvas({
   edges: Edge[]
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
+  onNodeDrag: NodeDragHandler
+  onNodeDragStop: NodeDragHandler
   initialViewportRestored: boolean
   onViewportRestored: () => void
 }) {
@@ -213,10 +217,12 @@ function FlowCanvas({
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeDrag={onNodeDrag}
+        onNodeDragStop={onNodeDragStop}
         defaultEdgeOptions={defaultEdgeOptions}
         deleteKeyCode={['Delete', 'Backspace']}
         nodesConnectable={false}
-        nodesDraggable={false}
+        nodesDraggable={true}
         fitView={!loadPersistedFlow()}
       >
         <Background />
@@ -283,18 +289,29 @@ export default function App() {
 
   /**
    * Handle node changes (select, remove, dimension updates, etc.).
-   * After applying changes, re-apply horizontal layout and rebuild auto-edges
-   * so that deleting a node re-indexes the remaining sequence correctly.
+   * Position changes (dragging) are handled by onNodeDrag/onNodeDragStop —
+   * we skip re-layout for those so dragging is not immediately snapped back.
+   * After applying non-position changes, re-apply horizontal layout and rebuild
+   * auto-edges so that deleting a node re-indexes the remaining sequence.
    */
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      const hasPosition = changes.some((c) => c.type === 'position')
+      const hasRemoval = changes.some((c) => c.type === 'remove')
+
+      if (hasPosition && !hasRemoval) {
+        // During drag: apply position changes as-is without snapping to layout.
+        // The y-axis clamping is handled by onNodeDrag.
+        setNodes((nds) => applyNodeChanges(changes, nds))
+        return
+      }
+
       clearNodeStatuses()
       setNodes((nds) => {
         const updated = applyNodeChanges(changes, nds)
         return applyHorizontalLayout(updated)
       })
       // Rebuild edges whenever node list may have changed (e.g. deletion)
-      const hasRemoval = changes.some((c) => c.type === 'remove')
       if (hasRemoval) {
         setNodes((nds) => {
           setEdges(buildAutoEdges(nds))
@@ -332,6 +349,106 @@ export default function App() {
     },
     [clearNodeStatuses],
   )
+
+  /**
+   * During drag: lock the dragged node's y-position to LAYOUT_Y so nodes
+   * can only move horizontally. This mutates the nodes state in-place via
+   * setNodes so React Flow re-renders at the clamped position.
+   */
+  const onNodeDrag: NodeDragHandler = useCallback((_event, draggedNode) => {
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === draggedNode.id
+          ? { ...n, position: { x: draggedNode.position.x, y: LAYOUT_Y } }
+          : n,
+      ),
+    )
+  }, [])
+
+  /**
+   * On drag end: compute the insertion index from the dragged node's x-position,
+   * enforce START-first / STOP-last constraints, reorder the nodes array, then
+   * re-apply horizontal layout and rebuild edges.
+   */
+  const onNodeDragStop: NodeDragHandler = useCallback((_event, draggedNode) => {
+    setNodes((nds) => {
+      // Find the dragged node's current index and its node type
+      const draggedIdx = nds.findIndex((n) => n.id === draggedNode.id)
+      if (draggedIdx === -1) return nds
+
+      const draggedType = nds[draggedIdx].type
+
+      // START (i2c_start) and STOP (i2c_stop) cannot be reordered
+      if (draggedType === 'i2c_start' || draggedType === 'i2c_stop') {
+        // Snap back to canonical positions
+        const reLayout = applyHorizontalLayout(nds)
+        setEdges(buildAutoEdges(reLayout))
+        return reLayout
+      }
+
+      // Determine insertion index from x-position of dragged node.
+      // Use node center (x + NODE_WIDTH/2) as the reference point.
+      const draggedCenterX = draggedNode.position.x + NODE_WIDTH / 2
+
+      // Build a list of the other nodes with their canonical (layout) positions.
+      // We compare against the current node positions (before full re-layout)
+      // so we get a stable reference.
+      const others = nds.filter((n) => n.id !== draggedNode.id)
+
+      // Count how many other nodes' centers are to the left of the drag center
+      let insertAt = 0
+      for (const other of others) {
+        const otherCenterX = other.position.x + NODE_WIDTH / 2
+        if (otherCenterX < draggedCenterX) insertAt++
+      }
+
+      // Enforce boundaries: START must be index 0, STOP must be last
+      const startIdx = others.findIndex((n) => n.type === 'i2c_start')
+      const stopIdx = others.findIndex((n) => n.type === 'i2c_stop')
+
+      // insertAt is the position in `others` before which we insert the dragged node
+      // (i.e. final index in the new array)
+      // After inserting, index 0 should be START and last should be STOP.
+      // START is always at others[startIdx] which, in the new array with dragged inserted:
+      //   if insertAt <= startIdx, START shifts to startIdx+1
+      //   else stays at startIdx
+      // We clamp insertAt so the dragged node cannot land before START or after STOP.
+
+      // Minimum allowed insertAt: after the start node
+      let minInsert = 0
+      if (startIdx !== -1) {
+        // START is at others[startIdx]; after insertion dragged goes to insertAt.
+        // We need insertAt > (position of START in the new array).
+        // START's new position = startIdx + (insertAt <= startIdx ? 1 : 0)
+        // So if insertAt <= startIdx, START is at startIdx+1 — dragged is before START -> not allowed
+        // Minimum: insertAt = startIdx + 1
+        minInsert = startIdx + 1
+      }
+
+      // Maximum allowed insertAt: before the stop node
+      let maxInsert = others.length
+      if (stopIdx !== -1) {
+        // STOP is at others[stopIdx]; after insertion dragged goes to insertAt.
+        // STOP's new position = stopIdx + (insertAt <= stopIdx ? 1 : 0)
+        // If insertAt > stopIdx, STOP is at stopIdx — dragged is after STOP -> not allowed
+        // Maximum: insertAt = stopIdx
+        maxInsert = stopIdx
+      }
+
+      const clampedInsert = Math.max(minInsert, Math.min(maxInsert, insertAt))
+
+      // Build new ordered array: insert draggedNode at clampedInsert in others
+      const reordered = [
+        ...others.slice(0, clampedInsert),
+        nds[draggedIdx],
+        ...others.slice(clampedInsert),
+      ]
+
+      const reLayout = applyHorizontalLayout(reordered)
+      setEdges(buildAutoEdges(reLayout))
+      return reLayout
+    })
+  }, [])
 
   // Clear button: reset canvas state and remove persisted flow
   const handleClear = useCallback(() => {
@@ -447,6 +564,8 @@ export default function App() {
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+            onNodeDrag={onNodeDrag}
+            onNodeDragStop={onNodeDragStop}
             initialViewportRestored={viewportRestored}
             onViewportRestored={() => setViewportRestored(true)}
           />
