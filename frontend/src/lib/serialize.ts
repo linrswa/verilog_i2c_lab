@@ -209,6 +209,49 @@ function mapNodeToStep(node: FlowNode): StepPayload | null {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
+ * Internal helper: resolve the longest connected chain and return the ordered
+ * node IDs alongside the serialized step payloads.  Both arrays are parallel —
+ * orderedNodeIds[i] is the node that produced steps[i].
+ */
+function serializeFlowInternal(
+  nodes: FlowNode[],
+  edges: Edge[],
+): { orderedNodeIds: string[]; steps: StepPayload[] } {
+  if (nodes.length === 0) return { orderedNodeIds: [], steps: [] }
+
+  const nodeIds = new Set(nodes.map((n) => n.id))
+  const nodeById = new Map(nodes.map((n) => [n.id, n]))
+  const adj = buildAdjacency(nodeIds, edges)
+  const roots = findRoots(nodeIds, edges)
+
+  if (roots.length === 0) {
+    return { orderedNodeIds: [], steps: [] }
+  }
+
+  let longestChain: string[] = []
+  for (const rootId of roots) {
+    const chain = dfsChain(rootId, adj)
+    if (chain.length > longestChain.length) {
+      longestChain = chain
+    }
+  }
+
+  const orderedNodeIds: string[] = []
+  const steps: StepPayload[] = []
+  for (const id of longestChain) {
+    const node = nodeById.get(id)
+    if (!node) continue
+    const step = mapNodeToStep(node)
+    if (step !== null) {
+      orderedNodeIds.push(id)
+      steps.push(step)
+    }
+  }
+
+  return { orderedNodeIds, steps }
+}
+
+/**
  * Convert a React Flow graph into an ordered array of backend step objects.
  *
  * Algorithm:
@@ -222,38 +265,18 @@ function mapNodeToStep(node: FlowNode): StepPayload | null {
  * that form isolated islands) are excluded from the output.
  */
 export function serializeFlow(nodes: FlowNode[], edges: Edge[]): StepPayload[] {
-  if (nodes.length === 0) return []
+  return serializeFlowInternal(nodes, edges).steps
+}
 
-  const nodeIds = new Set(nodes.map((n) => n.id))
-  const nodeById = new Map(nodes.map((n) => [n.id, n]))
-  const adj = buildAdjacency(nodeIds, edges)
-  const roots = findRoots(nodeIds, edges)
-
-  if (roots.length === 0) {
-    // Cycle or no roots — nothing to serialize safely
-    return []
-  }
-
-  // Walk each root's chain and pick the longest one
-  let longestChain: string[] = []
-  for (const rootId of roots) {
-    const chain = dfsChain(rootId, adj)
-    if (chain.length > longestChain.length) {
-      longestChain = chain
-    }
-  }
-
-  // A single isolated node (no edges at all) counts as a valid chain of length 1
-  // only when it IS the sole node or when there are no edges connecting nodes.
-  // The DFS already returns [rootId] in that case, so longestChain is correct.
-
-  const steps: StepPayload[] = []
-  for (const id of longestChain) {
-    const node = nodeById.get(id)
-    if (!node) continue
-    const step = mapNodeToStep(node)
-    if (step !== null) steps.push(step)
-  }
-
-  return steps
+/**
+ * Same as serializeFlow but also returns the ordered node IDs that correspond
+ * to each step (parallel arrays: orderedNodeIds[i] → steps[i]).
+ *
+ * Used by the UI to map simulation step results back to canvas node IDs.
+ */
+export function serializeFlowWithOrder(
+  nodes: FlowNode[],
+  edges: Edge[],
+): { orderedNodeIds: string[]; steps: StepPayload[] } {
+  return serializeFlowInternal(nodes, edges)
 }

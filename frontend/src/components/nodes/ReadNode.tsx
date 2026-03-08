@@ -9,6 +9,7 @@ export interface ReadNodeData {
   n: string
   expect: string
   errors?: Record<string, string | undefined>
+  status?: 'ok' | 'fail'
   [key: string]: unknown
 }
 
@@ -73,12 +74,13 @@ export function ReadNode({ id, data }: NodeProps<ReadNode>) {
           expect: nextExpect.trim() !== '' ? validateHexDataList(nextExpect).error : undefined,
         }
 
-        return { ...n, data: { ...n.data, [field]: value, errors } }
+        return { ...n, data: { ...n.data, [field]: value, errors, status: undefined } }
       })
     )
   }
 
   const errors = (data.errors ?? {}) as Record<string, string | undefined>
+  const status = data.status
 
   return (
     <div className="rounded-md border-2 border-green-500 bg-green-50 shadow-sm min-w-[200px]">
@@ -91,8 +93,14 @@ export function ReadNode({ id, data }: NodeProps<ReadNode>) {
       />
 
       {/* Header */}
-      <div className="bg-green-500 text-white text-xs font-semibold px-3 py-1 rounded-t">
-        Read
+      <div className="bg-green-500 text-white text-xs font-semibold px-3 py-1 rounded-t flex items-center justify-between">
+        <span>Read</span>
+        {status === 'ok' && (
+          <span aria-label="passed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-green-700 text-white text-[10px] leading-none font-bold">✓</span>
+        )}
+        {status === 'fail' && (
+          <span aria-label="failed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] leading-none font-bold">✕</span>
+        )}
       </div>
 
       {/* Fields */}

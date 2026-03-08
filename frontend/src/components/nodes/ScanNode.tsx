@@ -7,6 +7,7 @@ export interface ScanNodeData {
   address: string
   expect: string
   errors?: Record<string, string | undefined>
+  status?: 'ok' | 'fail'
   [key: string]: unknown
 }
 
@@ -27,7 +28,7 @@ export function ScanNode({ id, data }: NodeProps<ScanNode>) {
           address: validateHexAddr(nextAddress).error,
         }
 
-        return { ...n, data: { ...n.data, [field]: value, errors } }
+        return { ...n, data: { ...n.data, [field]: value, errors, status: undefined } }
       })
     )
   }
@@ -42,6 +43,7 @@ export function ScanNode({ id, data }: NodeProps<ScanNode>) {
 
   const errors = (data.errors ?? {}) as Record<string, string | undefined>
   const addressError = errors.address
+  const status = data.status
 
   return (
     <div className="rounded-md border-2 border-amber-400 bg-amber-50 shadow-sm min-w-[200px]">
@@ -54,8 +56,14 @@ export function ScanNode({ id, data }: NodeProps<ScanNode>) {
       />
 
       {/* Header */}
-      <div className="bg-amber-400 text-white text-xs font-semibold px-3 py-1 rounded-t">
-        Scan
+      <div className="bg-amber-400 text-white text-xs font-semibold px-3 py-1 rounded-t flex items-center justify-between">
+        <span>Scan</span>
+        {status === 'ok' && (
+          <span aria-label="passed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-green-500 text-white text-[10px] leading-none font-bold">✓</span>
+        )}
+        {status === 'fail' && (
+          <span aria-label="failed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] leading-none font-bold">✕</span>
+        )}
       </div>
 
       {/* Fields */}

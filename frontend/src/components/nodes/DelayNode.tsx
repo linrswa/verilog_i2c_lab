@@ -6,6 +6,7 @@ import { validatePositiveInt } from '../../lib/validate'
 export interface DelayNodeData {
   cycles: string
   errors?: Record<string, string | undefined>
+  status?: 'ok' | 'fail'
   [key: string]: unknown
 }
 
@@ -24,13 +25,14 @@ export function DelayNode({ id, data }: NodeProps<DelayNode>) {
           cycles: validatePositiveInt(value).error,
         }
 
-        return { ...n, data: { ...n.data, cycles: value, errors } }
+        return { ...n, data: { ...n.data, cycles: value, errors, status: undefined } }
       })
     )
   }
 
   const errors = (data.errors ?? {}) as Record<string, string | undefined>
   const cyclesError = errors.cycles
+  const status = data.status
 
   return (
     <div className="rounded-md border-2 border-purple-400 bg-purple-50 shadow-sm min-w-[180px]">
@@ -43,8 +45,14 @@ export function DelayNode({ id, data }: NodeProps<DelayNode>) {
       />
 
       {/* Header */}
-      <div className="bg-purple-400 text-white text-xs font-semibold px-3 py-1 rounded-t">
-        Delay
+      <div className="bg-purple-400 text-white text-xs font-semibold px-3 py-1 rounded-t flex items-center justify-between">
+        <span>Delay</span>
+        {status === 'ok' && (
+          <span aria-label="passed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-green-500 text-white text-[10px] leading-none font-bold">✓</span>
+        )}
+        {status === 'fail' && (
+          <span aria-label="failed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] leading-none font-bold">✕</span>
+        )}
       </div>
 
       {/* Fields */}

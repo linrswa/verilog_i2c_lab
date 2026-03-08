@@ -24,16 +24,19 @@ import {
   ScanNode,
   DelayNode,
 } from './components/nodes'
-import { serializeFlow } from './lib/serialize'
+import { serializeFlowWithOrder } from './lib/serialize'
+import type { StepPayload } from './lib/serialize'
 import { runSimulation, getTemplate } from './lib/api'
 import type { SimulationResult, TemplateDetail } from './lib/api'
-import type { StepPayload } from './lib/serialize'
 import {
   loadPersistedFlow,
   clearPersistedFlow,
   useFlowAutosave,
 } from './lib/useFlowPersistence'
 import { chainHasErrors } from './lib/validate'
+
+/** Status of each step after simulation: 'ok' | 'fail', keyed by node ID. */
+type NodeStatusMap = Map<string, 'ok' | 'fail'>
 
 // Register all custom node types — passed to <ReactFlow nodeTypes={...}>
 const nodeTypes: NodeTypes = {
@@ -260,21 +263,41 @@ export default function App() {
   const [runError, setRunError] = useState<string | null>(null)
   // Tracks whether FlowCanvas has already applied the saved viewport
   const [viewportRestored, setViewportRestored] = useState(false)
+  /**
+   * Clear all node status badges by removing the `status` field from node data.
+   * Called whenever the flow is modified so stale badges don't persist.
+   */
+  const clearNodeStatuses = useCallback(() => {
+    setNodes((nds) =>
+      nds.map((n) => {
+        const data = { ...n.data }
+        delete data.status
+        return { ...n, data }
+      }),
+    )
+  }, [])
 
   const onNodesChange = useCallback(
-    (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
-    [],
+    (changes: NodeChange[]) => {
+      clearNodeStatuses()
+      setNodes((nds) => applyNodeChanges(changes, nds))
+    },
+    [clearNodeStatuses],
   )
 
   const onEdgesChange = useCallback(
-    (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
-    [],
+    (changes: EdgeChange[]) => {
+      clearNodeStatuses()
+      setEdges((eds) => applyEdgeChanges(changes, eds))
+    },
+    [clearNodeStatuses],
   )
 
   // Enforce single outgoing edge per source handle and single incoming edge per target handle.
   // If a conflicting edge exists it is replaced so the canvas always stays a simple linear chain.
   const onConnect = useCallback(
     (connection: Connection) => {
+      clearNodeStatuses()
       setEdges((eds) => {
         // Remove any existing edge that originates from the same source handle
         const withoutSourceEdge = eds.filter(
@@ -287,7 +310,7 @@ export default function App() {
         return addEdge(connection, withoutConflict)
       })
     },
-    [],
+    [clearNodeStatuses],
   )
 
   // Clear button: reset canvas state and remove persisted flow
@@ -328,11 +351,26 @@ export default function App() {
 
     setIsRunning(true)
     setRunError(null)
+    // Clear stale status badges from a previous run before starting
+    clearNodeStatuses()
 
     try {
-      const steps = serializeFlow(nodes, edges)
+      const { orderedNodeIds, steps } = serializeFlowWithOrder(nodes, edges)
       const result = await runSimulation(steps)
       setSimulationResult(result)
+
+      // Build status map: each step result maps to the node at the same index
+      const statusMap: NodeStatusMap = new Map()
+      result.steps.forEach((stepResult, i) => {
+        const nodeId = orderedNodeIds[i]
+        if (nodeId !== undefined) {
+          statusMap.set(nodeId, stepResult.passed ? 'ok' : 'fail')
+        }
+      })
+      // Write status into each node's data so custom node components can render badges
+      setNodes((nds) =>
+        nds.map((n) => ({ ...n, data: { ...n.data, status: statusMap.get(n.id) } })),
+      )
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred'
       setRunError(message)

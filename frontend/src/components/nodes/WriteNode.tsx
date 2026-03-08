@@ -8,6 +8,7 @@ export interface WriteNodeData {
   register: string
   data: string
   errors?: Record<string, string | undefined>
+  status?: 'ok' | 'fail'
   [key: string]: unknown
 }
 
@@ -70,12 +71,13 @@ export function WriteNode({ id, data }: NodeProps<WriteNode>) {
           data: validateHexDataList(nextData).error,
         }
 
-        return { ...n, data: { ...n.data, [field]: value, errors } }
+        return { ...n, data: { ...n.data, [field]: value, errors, status: undefined } }
       })
     )
   }
 
   const errors = (data.errors ?? {}) as Record<string, string | undefined>
+  const status = data.status
 
   return (
     <div className="rounded-md border-2 border-blue-400 bg-blue-50 shadow-sm min-w-[200px]">
@@ -88,8 +90,14 @@ export function WriteNode({ id, data }: NodeProps<WriteNode>) {
       />
 
       {/* Header */}
-      <div className="bg-blue-400 text-white text-xs font-semibold px-3 py-1 rounded-t">
-        Write
+      <div className="bg-blue-400 text-white text-xs font-semibold px-3 py-1 rounded-t flex items-center justify-between">
+        <span>Write</span>
+        {status === 'ok' && (
+          <span aria-label="passed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-green-500 text-white text-[10px] leading-none font-bold">✓</span>
+        )}
+        {status === 'fail' && (
+          <span aria-label="failed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] leading-none font-bold">✕</span>
+        )}
       </div>
 
       {/* Fields */}
