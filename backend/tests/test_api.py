@@ -223,3 +223,67 @@ async def test_get_health_returns_200(client: AsyncClient) -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body.get("status") == "ok"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/run — protocol sequence validation (US-005)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_post_run_invalid_protocol_sequence_returns_422(
+    client: AsyncClient,
+) -> None:
+    """POST /api/run with a malformed protocol sequence returns HTTP 422 with errors."""
+    # start immediately followed by stop — no address byte — structurally invalid.
+    invalid_protocol_steps = [
+        {"op": "start"},
+        {"op": "stop"},
+    ]
+    resp = await client.post("/api/run", json={"steps": invalid_protocol_steps})
+
+    assert resp.status_code == 422
+    body = resp.json()
+    # The response detail must include a validation_errors key with at least one message.
+    detail = body.get("detail", {})
+    assert "validation_errors" in detail, f"Unexpected detail shape: {detail}"
+    assert isinstance(detail["validation_errors"], list)
+    assert len(detail["validation_errors"]) > 0
+
+
+@pytest.mark.anyio
+async def test_post_run_recv_byte_in_write_mode_returns_422(
+    client: AsyncClient,
+) -> None:
+    """recv_byte after a write-mode address byte must produce a 422."""
+    steps = [
+        {"op": "start"},
+        {"op": "send_byte", "data": "0xA0"},  # write mode
+        {"op": "recv_byte", "ack": True},     # invalid in write mode
+        {"op": "stop"},
+    ]
+    resp = await client.post("/api/run", json={"steps": steps})
+    assert resp.status_code == 422
+    detail = resp.json().get("detail", {})
+    assert "validation_errors" in detail
+
+
+@pytest.mark.anyio
+async def test_post_run_valid_protocol_sequence_proceeds(
+    client: AsyncClient,
+) -> None:
+    """A structurally valid protocol sequence passes validation and reaches the runner."""
+    valid_steps = [
+        {"op": "start"},
+        {"op": "send_byte", "data": "0xA0"},
+        {"op": "send_byte", "data": "0x10"},
+        {"op": "stop"},
+    ]
+    mock_create = _make_mock_subprocess(0, _FAKE_RESULT)
+
+    with patch("asyncio.create_subprocess_exec", new=mock_create):
+        resp = await client.post("/api/run", json={"steps": valid_steps})
+
+    # Should not be rejected by the validator; simulation mock returns passed=True.
+    assert resp.status_code == 200
+    assert resp.json()["passed"] is True
