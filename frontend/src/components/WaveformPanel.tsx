@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getWaveformSignals } from '../lib/api'
+import { getWaveformSignals, getWaveformUrl } from '../lib/api'
 import type { WaveformSignalsResponse } from '../lib/api'
 import { buildTimeToX } from '../lib/waveform'
 
@@ -354,6 +354,7 @@ export function WaveformPanel({ waveformId, panelHeight = DEFAULT_PANEL_HEIGHT }
   const [pickerOpen, setPickerOpen] = useState(false)
   const addBtnRef = useRef<HTMLButtonElement>(null)
 
+
   // Independent pan/zoom state for waveform area
   const [wvZoom, setWvZoom] = useState(1)
   const [wvPanX, setWvPanX] = useState(0)
@@ -368,6 +369,7 @@ export function WaveformPanel({ waveformId, panelHeight = DEFAULT_PANEL_HEIGHT }
     setWvZoom(1)
     setWvPanX(0)
   }, [waveformId])
+
 
   // Wheel zoom — horizontal only, centered on cursor
   const handleWheelZoom = useCallback((e: React.WheelEvent) => {
@@ -572,9 +574,22 @@ export function WaveformPanel({ waveformId, panelHeight = DEFAULT_PANEL_HEIGHT }
     >
       {/* Toggle bar */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-200 bg-gray-50">
-        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-          Waveform Viewer
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+            Waveform Viewer
+          </span>
+          {waveformId && (
+            <a
+              href={`/surfer/index.html?load_url=${encodeURIComponent(getWaveformUrl(waveformId))}#dev`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-500 hover:text-blue-700 hover:underline transition-colors"
+              title="Open VCD in Surfer waveform viewer (new tab)"
+            >
+              (open in Surfer)
+            </a>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {isLoading && (
             <span className="text-xs text-gray-400 italic">Loading...</span>
