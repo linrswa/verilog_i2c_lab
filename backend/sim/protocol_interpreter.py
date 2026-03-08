@@ -65,11 +65,20 @@ class TxnResult:
     bytes_written:
         Number of data bytes successfully written during a write transaction.
         0 for read transactions.
+    start_time_ps:
+        Simulation time in picoseconds at the start of this transaction.
+        None when timing was not recorded (e.g. in unit tests that do not
+        run under cocotb).
+    end_time_ps:
+        Simulation time in picoseconds at the end of this transaction.
+        None when timing was not recorded.
     """
 
     ack_ok: bool
     data_read: list[int] = field(default_factory=list)
     bytes_written: int = 0
+    start_time_ps: int | None = None
+    end_time_ps: int | None = None
 
 
 # ---------------------------------------------------------------------------

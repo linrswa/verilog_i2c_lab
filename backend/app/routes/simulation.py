@@ -73,6 +73,7 @@ class RunResponse(BaseModel):
     register_dump: dict[str, Any]
     reg_pointer: int
     waveform_id: str
+    sim_time_total_ps: Optional[int]
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +145,7 @@ async def run_simulation(body: RunRequest) -> RunResponse:
         register_dump=result.get("register_dump", {}),
         reg_pointer=result.get("reg_pointer", 0),
         waveform_id=waveform_id,
+        sim_time_total_ps=result.get("sim_time_total_ps"),
     )
 
 

@@ -12,6 +12,7 @@ DUT signal map (i2c_system_wrapper):
 
 import cocotb
 from cocotb.triggers import RisingEdge, ClockCycles
+from cocotb.utils import get_sim_time
 
 from protocol_interpreter import Transaction, TxnResult
 
@@ -405,6 +406,9 @@ class I2CDriver:
         dut.repeated_start_in.value = 1 if repeated_start else 0
         dut.data_in.value = payload[0] if payload else 0x00
 
+        # Record simulation time at the start of this transaction.
+        txn_start_ps: int = int(get_sim_time("ps"))
+
         # Pulse start for exactly one clock cycle.
         dut.start.value = 1
         await RisingEdge(dut.clk)
@@ -444,11 +448,14 @@ class I2CDriver:
                     dut.data_in.value = payload[next_payload_idx]
                     next_payload_idx += 1
 
+        txn_end_ps: int = int(get_sim_time("ps"))
         ack_ok = int(dut.ack_error.value) == 0
         return TxnResult(
             ack_ok=ack_ok,
             data_read=[],
             bytes_written=len(payload) if ack_ok else 0,
+            start_time_ps=txn_start_ps,
+            end_time_ps=txn_end_ps,
         )
 
     async def _run_read_txn(
@@ -486,6 +493,9 @@ class I2CDriver:
         dut.num_bytes.value = read_count
         dut.repeated_start_in.value = 1 if repeated_start else 0
 
+        # Record simulation time at the start of this transaction.
+        txn_start_ps: int = int(get_sim_time("ps"))
+
         dut.start.value = 1
         await RisingEdge(dut.clk)
         dut.start.value = 0
@@ -506,11 +516,14 @@ class I2CDriver:
                 if dut.done.value == 1:
                     break
 
+        txn_end_ps: int = int(get_sim_time("ps"))
         ack_ok = int(dut.ack_error.value) == 0
         return TxnResult(
             ack_ok=ack_ok,
             data_read=received,
             bytes_written=0,
+            start_time_ps=txn_start_ps,
+            end_time_ps=txn_end_ps,
         )
 
     async def execute_transactions(
@@ -613,6 +626,9 @@ class I2CDriver:
         # Per-segment read data accumulators and byte feeding state.
         # Index 0 corresponds to txns[0], etc.
         seg_received: list = [[] for _ in range(n)]
+
+        # Record simulation time at the start of this segment.
+        seg_start_ps: int = int(get_sim_time("ps"))
 
         # ----------------------------------------------------------------
         # Set up and start the FIRST transaction in the segment.
@@ -718,6 +734,7 @@ class I2CDriver:
         # ----------------------------------------------------------------
         # Build TxnResult for each transaction in the segment.
         # ----------------------------------------------------------------
+        seg_end_ps: int = int(get_sim_time("ps"))
         ack_ok = int(dut.ack_error.value) == 0
 
         for k, txn in enumerate(txns):
@@ -727,12 +744,16 @@ class I2CDriver:
                     ack_ok=ack_ok,
                     data_read=[],
                     bytes_written=len(p) if ack_ok else 0,
+                    start_time_ps=seg_start_ps,
+                    end_time_ps=seg_end_ps,
                 )
             else:
                 seg_results[k] = TxnResult(
                     ack_ok=ack_ok,
                     data_read=seg_received[k],
                     bytes_written=0,
+                    start_time_ps=seg_start_ps,
+                    end_time_ps=seg_end_ps,
                 )
 
         return seg_results

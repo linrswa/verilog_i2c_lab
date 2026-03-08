@@ -92,10 +92,24 @@ import tempfile
 from typing import Any
 
 import cocotb
+from cocotb.utils import get_sim_time
 from cocotb_tools.runner import get_runner
 
 from i2c_driver import I2CDriver
 from protocol_interpreter import ProtocolInterpreter
+
+
+def _sim_time_ps() -> int | None:
+    """Return the current simulation time in picoseconds, or None outside cocotb.
+
+    Outside of a running cocotb simulation (e.g. in unit tests) ``get_sim_time``
+    raises an exception.  This helper swallows that exception and returns
+    ``None`` so that timing capture is a best-effort, non-breaking operation.
+    """
+    try:
+        return int(get_sim_time("ps"))
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -342,7 +356,11 @@ async def execute_step(driver: I2CDriver, step: dict) -> dict:
 
     try:
         if op == "reset":
+            t0 = _sim_time_ps()
             await driver.reset()
+            t1 = _sim_time_ps()
+            if t0 is not None and t1 is not None:
+                result["time_range_ps"] = [t0, t1]
 
         elif op in PROTOCOL_OPS:
             # Protocol-level ops must be executed via execute_sequence() which
@@ -355,10 +373,14 @@ async def execute_step(driver: I2CDriver, step: dict) -> dict:
             )
 
         elif op == "write_bytes":
+            t0 = _sim_time_ps()
             ack = await driver.write_bytes(
                 step["addr"], step["reg"], step["data"]
             )
+            t1 = _sim_time_ps()
             result["ack"] = ack
+            if t0 is not None and t1 is not None:
+                result["time_range_ps"] = [t0, t1]
             if "expect" in step:
                 # expect for write_bytes is the expected byte list written; we
                 # compare against step["data"] (what was actually sent) if the
@@ -369,21 +391,33 @@ async def execute_step(driver: I2CDriver, step: dict) -> dict:
                 )
 
         elif op == "read_bytes":
+            t0 = _sim_time_ps()
             data = await driver.read_bytes(
                 step["addr"], step["reg"], step["n"]
             )
+            t1 = _sim_time_ps()
             result["data"] = [hex(b) for b in data]
+            if t0 is not None and t1 is not None:
+                result["time_range_ps"] = [t0, t1]
             if "expect" in step:
                 result["match"] = data == step["expect"]
 
         elif op == "scan":
+            t0 = _sim_time_ps()
             found = await driver.scan(step["addr"])
+            t1 = _sim_time_ps()
             result["found"] = found
+            if t0 is not None and t1 is not None:
+                result["time_range_ps"] = [t0, t1]
             if "expect" in step:
                 result["match"] = found == step["expect"]
 
         elif op == "delay":
+            t0 = _sim_time_ps()
             await driver.delay(step["cycles"])
+            t1 = _sim_time_ps()
+            if t0 is not None and t1 is not None:
+                result["time_range_ps"] = [t0, t1]
 
     except Exception as exc:  # noqa: BLE001
         result["status"] = "error"
@@ -454,6 +488,15 @@ def _map_protocol_results(
             ack_ok = False
             txn_res = None
 
+        # Build the time_range_ps list from TxnResult timing if available.
+        time_range: list | None = None
+        if (
+            txn_res is not None
+            and txn_res.start_time_ps is not None
+            and txn_res.end_time_ps is not None
+        ):
+            time_range = [txn_res.start_time_ps, txn_res.end_time_ps]
+
         if op == "send_byte":
             byte_val: int = step["data"]
             entry: dict = {
@@ -461,6 +504,8 @@ def _map_protocol_results(
                 "data": hex(byte_val),
                 "status": "ok" if ack_ok else "fail",
             }
+            if time_range is not None:
+                entry["time_range_ps"] = time_range
             if is_addr_byte:
                 # Decode the address+RW byte for informational purposes.
                 addr = (byte_val >> 1) & 0x7F
@@ -476,6 +521,8 @@ def _map_protocol_results(
                 "ack": step["ack"],
                 "status": "ok" if ack_ok else "fail",
             }
+            if time_range is not None:
+                recv_entry["time_range_ps"] = time_range
             if txn_res is not None and read_byte_idx < len(txn_res.data_read):
                 recv_entry["data"] = hex(txn_res.data_read[read_byte_idx])
                 read_byte_idx += 1
@@ -590,6 +637,7 @@ def build_final_result(
     register_dump: dict,
     reg_pointer: int = 0,
     vcd_path: str | None = None,
+    sim_time_total_ps: int | None = None,
 ) -> dict:
     """Assemble the top-level JSON result dict from per-step results.
 
@@ -605,17 +653,22 @@ def build_final_result(
     vcd_path:
         Filesystem path to the VCD waveform file, or ``None`` if the
         simulation did not produce one.
+    sim_time_total_ps:
+        Total simulation time in picoseconds at the end of the run, or
+        ``None`` when not available (e.g. outside a cocotb context).
 
     Returns
     -------
     dict
         Top-level result dict with the following keys:
 
-        - ``"passed"``        — ``True`` when every step passes (bool)
-        - ``"steps"``         — list of per-step result dicts
-        - ``"register_dump"`` — register snapshot (keys are int addresses)
-        - ``"reg_pointer"``   — current slave register pointer (int)
-        - ``"vcd_path"``      — path string or ``None``
+        - ``"passed"``            — ``True`` when every step passes (bool)
+        - ``"steps"``             — list of per-step result dicts
+        - ``"register_dump"``     — register snapshot (keys are int addresses)
+        - ``"reg_pointer"``       — current slave register pointer (int)
+        - ``"vcd_path"``          — path string or ``None``
+        - ``"sim_time_total_ps"`` — total simulation time in picoseconds, or
+                                    ``None`` when timing is unavailable
     """
     passed = all(_step_passed(r) for r in step_results)
     return {
@@ -624,6 +677,7 @@ def build_final_result(
         "register_dump": register_dump,
         "reg_pointer": reg_pointer,
         "vcd_path": vcd_path,
+        "sim_time_total_ps": sim_time_total_ps,
     }
 
 
@@ -661,7 +715,10 @@ async def run_sequence(
     step_results = await execute_sequence(driver, steps)
     register_dump = await driver.get_register_dump()
     reg_pointer = await driver.get_reg_pointer()
-    return build_final_result(step_results, register_dump, reg_pointer, vcd_path)
+    sim_time_total_ps = _sim_time_ps()
+    return build_final_result(
+        step_results, register_dump, reg_pointer, vcd_path, sim_time_total_ps
+    )
 
 
 # ---------------------------------------------------------------------------
