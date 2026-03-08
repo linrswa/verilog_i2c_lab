@@ -1,0 +1,11 @@
+{
+  "name": "Protocol Write",
+  "description": "Write 0xFF to register 0x00 of slave 0x50 using protocol-level ops (START, addr+W, reg, data, STOP)",
+  "steps": [
+    {"op": "start"},
+    {"op": "send_byte", "data": "0xA0"},
+    {"op": "send_byte", "data": "0x00"},
+    {"op": "send_byte", "data": "0xFF"},
+    {"op": "stop"}
+  ]
+}

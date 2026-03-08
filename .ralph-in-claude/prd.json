@@ -1,216 +1,268 @@
 {
-  "project": "I2C Demo — Phase 4 Protocol-Level Primitives",
-  "branchName": "ralph/phase4-protocol-primitives",
+  "project": "I2C Demo - Waveform Viewer",
+  "branchName": "ralph/waveform-viewer",
   "baseBranch": "main",
-  "sourcePrd": ".ralph-in-claude/tasks/prd-phase4-protocol-level-primitives.md",
-  "description": "Refactor the I2C simulation stack to protocol-level primitives (start, stop, repeated_start, send_byte, recv_byte). Add a ProtocolInterpreter that groups protocol steps into master transactions, expose new ops through the backend API, and add 5 new low-level nodes to the React Flow frontend.",
+  "sourcePrd": ".ralph-in-claude/tasks/prd-waveform-viewer.md",
+  "description": "Add a waveform viewer with time-aligned horizontal canvas layout for I2C simulation visualization",
   "conflictStrategy": "optimistic",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Protocol Step Interpreter",
-      "description": "As a developer, I want a protocol step interpreter in the driver layer so that protocol-level step sequences can be translated into master transactions.",
+      "title": "Horizontal auto-layout for nodes",
+      "description": "As a user, I want protocol step nodes to be arranged horizontally in a linear pipeline so that the sequence is visually clear and ready for waveform alignment.",
       "acceptanceCriteria": [
-        "New class ProtocolInterpreter in backend/sim/protocol_interpreter.py",
-        "interpret(steps) method groups protocol steps into Transaction dataclass list",
-        "Grouping rules: start begins group, first send_byte is addr+RW byte (LSB=RW), subsequent send_bytes are data, recv_byte collects read bytes with ack param, repeated_start ends group with repeated_start=true, stop ends group with repeated_start=false",
-        "Transaction dataclass with fields: addr (int), rw (0=write, 1=read), data_bytes (list[int]), read_count (int), repeated_start (bool)",
-        "Raises ValueError for invalid sequences (send_byte without start, recv_byte in write mode, etc.)",
-        "Unit tests (pytest, no cocotb): write sequence, read sequence, write-then-read with repeated start, validation errors",
-        "Typecheck passes (mypy)"
+        "All nodes are positioned at the same y-coordinate (Y = 200)",
+        "Nodes are spaced evenly: x = i * (NODE_WIDTH + GAP) where NODE_WIDTH=160, GAP=40",
+        "Adding a new node places it at the end of the sequence with correct position",
+        "Deleting a node re-indexes and re-positions all remaining nodes",
+        "Edges are auto-generated between consecutive nodes using smoothstep type",
+        "nodesConnectable={false} prevents manual edge creation",
+        "Typecheck passes",
+        "Verify in browser: nodes appear in a horizontal row"
       ],
       "dependsOn": [],
-      "sharedFiles": [],
+      "sharedFiles": [
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "modify node layout logic and add/delete handlers" }
+      ],
       "priority": 1,
       "passes": true,
-      "notes": "The RTL master is transaction-based: START + ADDR + N data bytes + STOP/REPEATED_START as one atomic op. The interpreter must group protocol-level steps into these transactions.\n\nAddress byte convention: first send_byte after start is addr+RW. Bits [7:1] = 7-bit slave addr, Bit [0] = RW (0=write, 1=read). Example: 0xA0 = addr 0x50 write, 0xA1 = addr 0x50 read.\n\nGrouping example:\n  start → send_byte(0xA0) → send_byte(0x10) → repeated_start → send_byte(0xA1) → recv_byte(ACK) → recv_byte(NACK) → stop\n  → Transaction 1: addr=0x50, rw=WRITE, data=[0x10], repeated_start=true\n  → Transaction 2: addr=0x50, rw=READ, read_count=2, repeated_start=false\n\nMaster hardware constraint: num_bytes is 4-bit (max 15). Write max = 14 data bytes (1 slot for reg pointer). Read max = 15 bytes. The interpreter should handle chunking for long sequences."
+      "notes": "Layout function: nodes.map((node, i) => ({ ...node, position: { x: i * (NODE_WIDTH + GAP), y: Y } })). Auto-edges: nodes.slice(0,-1).map((node, i) => ({ id: `e-${node.id}-${nodes[i+1].id}`, source: node.id, target: nodes[i+1].id, type: 'smoothstep' })). Set nodesDraggable={false} initially (US-003 will re-enable with constraints). Key files: App.tsx (main layout logic). The existing code uses React Flow with free-form positioning — this story replaces that with computed positions."
     },
     {
       "id": "US-002",
-      "title": "Driver Execute Transaction List",
-      "description": "As a developer, I want the I2CDriver to execute a list of Transaction objects so that interpreted protocol steps can run on the hardware.",
+      "title": "Click-to-append sidebar",
+      "description": "As a user, I want to click buttons in the sidebar to append protocol steps to the sequence, replacing the drag-and-drop interaction.",
       "acceptanceCriteria": [
-        "New method I2CDriver.execute_transactions(txns: list[Transaction]) -> list[TxnResult]",
-        "For write transactions: drives slave_addr_in, rw=0, num_bytes, data_in, repeated_start_in — reuses existing payload-feeding logic",
-        "For read transactions: drives slave_addr_in, rw=1, num_bytes, repeated_start_in — reuses existing data_valid capture logic",
-        "repeated_start_in set to 1 when txn.repeated_start is True",
-        "TxnResult dataclass: ack_ok (bool), data_read (list[int]), bytes_written (int)",
-        "Existing write_bytes/read_bytes/scan methods remain unchanged and functional",
-        "Typecheck passes (mypy)"
+        "Sidebar shows buttons for each node type (START, SEND_BYTE, RECV_BYTE, STOP)",
+        "Clicking a button appends the node to the end of the sequence",
+        "New node automatically gets an edge from the previous node",
+        "Drag-and-drop from sidebar is removed",
+        "START/STOP auto-management still works (sequence must start with START, end with STOP)",
+        "Typecheck passes",
+        "Verify in browser: clicking sidebar buttons appends nodes correctly"
       ],
       "dependsOn": ["US-001"],
       "sharedFiles": [
-        { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "Adding new execute_transactions method and importing Transaction/TxnResult" }
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "modify onDrop/add handlers to use click-to-append" }
       ],
       "priority": 2,
       "passes": true,
-      "notes": "Key DUT signals: slave_addr_in, rw, num_bytes, data_in, repeated_start_in, start, busy, done, ack_error, data_out, data_valid, byte_count.\n\nExtract the payload-feeding logic from write_bytes (lines 143-246) and the data_valid capture from read_bytes (lines 293-359) into internal helpers that execute_transactions can reuse. The repeated_start_in signal on line 90/158/301 is currently always set to 0 — this is the signal to drive.\n\nInter-transaction gap: use ClockCycles(dut.clk, 10) between transactions, UNLESS the previous transaction ended with repeated_start (in that case, no gap — the master transitions directly to the next START)."
+      "notes": "Current Sidebar.tsx uses onDragStart to set drag data, and App.tsx has onDrop handler. Replace with onClick callbacks passed from App.tsx to Sidebar.tsx. The sidebar should call an addNode(type) function that appends to the nodes array, then the layout function from US-001 recomputes positions. Keep the existing node type definitions (START, SEND_BYTE, RECV_BYTE, STOP, REPEATED_START). Preserve START/STOP auto-management logic."
     },
     {
       "id": "US-003",
-      "title": "Cocotb Tests for Repeated Start",
-      "description": "As a developer, I want cocotb tests that exercise repeated start sequences so that I can verify the RTL + driver work correctly end-to-end.",
+      "title": "Drag-to-reorder nodes",
+      "description": "As a user, I want to drag nodes horizontally to reorder them in the sequence so I can rearrange steps without deleting and re-adding.",
       "acceptanceCriteria": [
-        "New test file backend/sim/tests/test_protocol.py",
-        "Test: write register pointer (1 byte) → repeated start → read N bytes (classic EEPROM pattern)",
-        "Test: write data → repeated start → read back same data (verify register contents match)",
-        "Test: scan via write with repeated start (addr probe without STOP)",
-        "Test: multi-segment repeated start chain (write → RS → read → RS → write → STOP)",
-        "All tests use ProtocolInterpreter + I2CDriver.execute_transactions()",
-        "All tests pass with cocotb + Icarus Verilog",
-        "Verify via register dump that data integrity is maintained across repeated start sequences"
-      ],
-      "dependsOn": ["US-002"],
-      "sharedFiles": [],
-      "priority": 3,
-      "passes": true,
-      "notes": "Run tests with: cd backend/sim && python -m pytest tests/test_protocol.py (cocotb runner pattern, same as test_i2c_cocotb.py).\n\nThe verilog_practice/I2C/i2c_master_tb.v has a repeated_start_test task (lines 332-374) as reference for expected behavior.\n\nKey test pattern — classic EEPROM read:\n  1. Start → send_byte(0xA0) → send_byte(reg_addr) → repeated_start\n  2. send_byte(0xA1) → recv_byte(ACK) → recv_byte(NACK) → stop\n  3. Verify read data matches what was written to reg_addr\n\nThe slave's in_read_ack_window fix (already in i2c_demo RTL) prevents false STOP detection during read ACK phase, which is critical for repeated start reliability."
-    },
-    {
-      "id": "US-004",
-      "title": "Protocol-Level Step Ops in Test Runner",
-      "description": "As a developer, I want the test_runner to support protocol-level ops so that JSON test sequences can use fine-grained I2C steps.",
-      "acceptanceCriteria": [
-        "New ops in test_runner.py parse_step()/execute_step(): start (no params), stop (no params), repeated_start (no params), send_byte (data: int|hex-string), recv_byte (ack: bool)",
-        "Protocol steps are buffered until stop is encountered, then passed to ProtocolInterpreter.interpret() and executed via execute_transactions()",
-        "Each send_byte/recv_byte within a start..stop block gets its own result entry with status ok/fail and relevant data",
-        "Existing ops (reset, write_bytes, read_bytes, scan, delay) continue to work unchanged",
-        "Typecheck passes (mypy)"
-      ],
-      "dependsOn": ["US-003"],
-      "sharedFiles": [
-        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "Adding new op parsing and protocol buffering logic to parse_step/execute_step" }
-      ],
-      "priority": 4,
-      "passes": true,
-      "notes": "Buffering strategy: when execute_step encounters op='start', it enters protocol-buffering mode. Subsequent steps (send_byte, recv_byte, repeated_start) are collected into a buffer. When op='stop' is encountered, the full buffer is passed to ProtocolInterpreter.interpret(), then I2CDriver.execute_transactions(). Results are mapped back: each send_byte/recv_byte gets its own step result.\n\nJSON example:\n  {\"steps\": [\n    {\"op\": \"reset\"},\n    {\"op\": \"start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA0\"},\n    {\"op\": \"send_byte\", \"data\": \"0x10\"},\n    {\"op\": \"repeated_start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA1\"},\n    {\"op\": \"recv_byte\", \"ack\": true},\n    {\"op\": \"recv_byte\", \"ack\": false},\n    {\"op\": \"stop\"}\n  ]}\n\nThe execute_step function will need a stateful context (or modify execute_sequence) to handle buffering across multiple step calls."
-    },
-    {
-      "id": "US-005",
-      "title": "Protocol Sequence Validation",
-      "description": "As a developer, I want protocol step sequences to be validated before execution so that malformed sequences produce clear error messages.",
-      "acceptanceCriteria": [
-        "Validation function validate_protocol_sequence(steps) -> list[str] in protocol_interpreter.py",
-        "Validates: every start has a matching stop or repeated_start before next start",
-        "Validates: send_byte/recv_byte only appear between start and stop/repeated_start",
-        "Validates: first send_byte after start is a valid address byte (0x00-0xFF)",
-        "Validates: recv_byte only in read mode (address byte LSB=1)",
-        "Validates: send_byte (after address byte) only in write mode (address byte LSB=0)",
-        "Returns list of human-readable error strings (empty = valid)",
-        "Backend returns 422 with validation errors if protocol sequence is invalid",
-        "Unit tests for each validation rule",
-        "Typecheck passes (mypy)"
+        "Nodes can be dragged horizontally only (y-axis locked)",
+        "Dropping a node between two others inserts it at that position",
+        "After reorder, all nodes snap to their correct evenly-spaced positions",
+        "Edges are regenerated to reflect the new order",
+        "START must remain first, STOP must remain last (cannot be reordered past boundaries)",
+        "Typecheck passes",
+        "Verify in browser: dragging a node reorders the sequence"
       ],
       "dependsOn": ["US-001"],
       "sharedFiles": [
-        { "file": "backend/sim/protocol_interpreter.py", "conflictType": "append-only", "reason": "Adding validate_protocol_sequence function to existing module" }
-      ],
-      "priority": 4,
-      "passes": true,
-      "notes": "This can run in parallel with US-004 since US-005 only adds a validation function to protocol_interpreter.py (append-only) while US-004 modifies test_runner.py.\n\nValidation should be called in the backend route handler (backend/app/routes/simulation.py) before passing steps to the test runner. If validation fails, return HTTP 422 with the error list.\n\nEdge cases to validate:\n- Empty sequence (no start/stop) → valid (just means no protocol steps)\n- start immediately followed by stop → invalid (no address byte)\n- Multiple starts without stop → invalid\n- recv_byte after send_byte(addr+W) → invalid (wrong mode)\n- send_byte after send_byte(addr+R) → invalid (should be recv_byte in read mode)"
-    },
-    {
-      "id": "US-006",
-      "title": "Integration Test — Protocol Sequences via API",
-      "description": "As a developer, I want to verify protocol-level sequences work end-to-end through the FastAPI backend.",
-      "acceptanceCriteria": [
-        "New template JSON: backend/sim/templates/repeated_start_read.json — write register pointer → repeated start → read pattern",
-        "Test: POST /api/run with protocol-level steps returns correct results",
-        "Test: POST /api/run with mixed protocol + legacy ops in same sequence works",
-        "Test: POST /api/run with invalid protocol sequence returns 422 with error details",
-        "All tests pass"
-      ],
-      "dependsOn": ["US-004", "US-005"],
-      "sharedFiles": [],
-      "priority": 5,
-      "passes": true,
-      "notes": "Template JSON for repeated_start_read.json:\n  {\"name\": \"Repeated Start Read\", \"description\": \"Write register pointer then read via repeated start\", \"steps\": [\n    {\"op\": \"reset\"},\n    {\"op\": \"write_bytes\", \"addr\": \"0x50\", \"reg\": \"0x00\", \"data\": [\"0xDE\", \"0xAD\"]},\n    {\"op\": \"start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA0\"},\n    {\"op\": \"send_byte\", \"data\": \"0x00\"},\n    {\"op\": \"repeated_start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA1\"},\n    {\"op\": \"recv_byte\", \"ack\": true},\n    {\"op\": \"recv_byte\", \"ack\": false},\n    {\"op\": \"stop\"}\n  ]}\n\nMixed test: combine legacy write_bytes with protocol-level read via repeated start in one sequence."
-    },
-    {
-      "id": "US-007",
-      "title": "Protocol Control Nodes (Start, Stop, RepeatedStart)",
-      "description": "As a user, I want Start, Stop, and RepeatedStart nodes on the canvas so that I can control I2C bus protocol flow.",
-      "acceptanceCriteria": [
-        "StartNode — displays 'START' label, green accent, one output handle (bottom), no input handle",
-        "StopNode — displays 'STOP' label, red accent, one input handle (top), no output handle",
-        "RepeatedStartNode — displays 'Sr' label, orange accent, one input handle (top), one output handle (bottom)",
-        "All three registered in nodeTypes map in frontend/src/components/nodes/index.ts",
-        "Sidebar updated with new 'Protocol' section showing these 3 node types as draggable items",
-        "Typecheck passes",
-        "Verify in browser: all 3 nodes render correctly with handles"
-      ],
-      "dependsOn": [],
-      "sharedFiles": [
-        { "file": "frontend/src/components/nodes/index.ts", "conflictType": "append-only", "reason": "Registering new node types in nodeTypes map" },
-        { "file": "frontend/src/components/Sidebar.tsx", "conflictType": "structural-modify", "reason": "Adding Protocol section to sidebar layout" }
-      ],
-      "priority": 1,
-      "passes": true,
-      "notes": "Create StartNode.tsx, StopNode.tsx, RepeatedStartNode.tsx in frontend/src/components/nodes/.\n\nSidebar layout update: add a divider and 'Protocol' section header below the existing 5 Basic node types. Sidebar items use HTML5 dataTransfer with node type string.\n\nNode type strings: 'i2c_start', 'i2c_stop', 'repeated_start'. Use 'i2c_start'/'i2c_stop' to avoid conflict with any React Flow internal 'start'/'stop' strings.\n\nStartNode is similar to ResetNode (no params, just label + output handle). StopNode is similar but input handle only. RepeatedStartNode has both handles.\n\nColors: Start=emerald/green, Stop=rose/red, RepeatedStart=orange/amber."
-    },
-    {
-      "id": "US-008",
-      "title": "Data Transfer Nodes (SendByte, RecvByte)",
-      "description": "As a user, I want SendByte and RecvByte nodes so that I can specify individual bytes in an I2C transaction.",
-      "acceptanceCriteria": [
-        "SendByteNode — inline hex input for byte value (0x00-0xFF), purple accent, input handle (top), output handle (bottom)",
-        "SendByteNode displays auto-computed helper text when value looks like address byte: 'Addr: 0x{byte>>1} {R/W}'",
-        "RecvByteNode — ACK/NACK toggle (select), teal accent, input handle (top), output handle (bottom), read-only data field shown after simulation",
-        "Both registered in nodeTypes map",
-        "Sidebar Protocol section updated with these 2 node types",
-        "Default values: SendByte data=0xA0, RecvByte ack=true",
-        "Validation: SendByte data must be valid hex 0x00-0xFF",
-        "Typecheck passes",
-        "Verify in browser: both nodes render with correct fields"
-      ],
-      "dependsOn": ["US-007"],
-      "sharedFiles": [
-        { "file": "frontend/src/components/nodes/index.ts", "conflictType": "append-only", "reason": "Registering SendByte and RecvByte node types" },
-        { "file": "frontend/src/components/Sidebar.tsx", "conflictType": "append-only", "reason": "Adding 2 more items to Protocol section" }
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "add drag-reorder handler and position snapping" }
       ],
       "priority": 2,
       "passes": true,
-      "notes": "Create SendByteNode.tsx and RecvByteNode.tsx in frontend/src/components/nodes/.\n\nNode type strings: 'send_byte', 'recv_byte'.\n\nSendByteNode helper text logic: parse the hex value, if it's a plausible address byte (any valid hex), show decoded addr and R/W. Example: input '0xA0' → 'Addr: 0x50 W', input '0xA1' → 'Addr: 0x50 R'. This is always shown as helper text (the user decides if it's actually an address byte based on position in chain).\n\nRecvByteNode: the 'data' field is read-only and populated after simulation via node.data.receivedData (set by the status overlay logic in US-009's pattern). For now, just show an empty read-only field with placeholder 'After sim'.\n\nUse existing validate.ts pattern: validateHexByte(v) for SendByte validation. Add 'nodrag' class on inputs."
+      "notes": "Re-enable nodesDraggable but use onNodeDrag/onNodeDragStop to constrain y-axis and implement reorder logic. During drag, calculate insertion index from x-position. On drop, reorder the nodes array and re-run the layout function. Lock START at index 0 and STOP at last index. React Flow's onNodeDrag provides the node position — compare against other node positions to determine insertion point."
     },
     {
-      "id": "US-009",
-      "title": "Serialization for Protocol-Level Nodes",
-      "description": "As a developer, I want the flow serializer to handle protocol-level nodes so that protocol sequences can be sent to the backend.",
+      "id": "US-004",
+      "title": "VCD parser service",
+      "description": "As a developer, I want a backend service that parses VCD files and extracts signal change data so the frontend can render waveforms.",
       "acceptanceCriteria": [
-        "serializeFlow updated to map: i2c_start→{op:'start'}, i2c_stop→{op:'stop'}, repeated_start→{op:'repeated_start'}, send_byte→{op:'send_byte',data:'0xNN'}, recv_byte→{op:'recv_byte',ack:bool}",
-        "Mixed flows with legacy + protocol nodes serialize correctly",
-        "Protocol nodes can coexist with legacy nodes in same flow (e.g., Reset → Start → SendByte → ... → Stop → Delay)",
-        "Unit tests: protocol-only chain, mixed chain, empty protocol section",
+        "New file backend/app/services/vcd_parser.py with a parse_vcd() function",
+        "Uses the vcdvcd Python package to parse VCD files",
+        "Extracts signal changes as [time_ps, value] arrays sorted by time",
+        "Handles VCD signal hierarchy (e.g., i2c_system_wrapper.dut.scl maps to scl)",
+        "Returns timescale, end_time, and per-signal metadata (width, changes)",
+        "Returns all available signal names when no filter is specified",
+        "vcdvcd is added to requirements.txt",
         "Typecheck passes"
       ],
-      "dependsOn": ["US-008"],
+      "dependsOn": [],
       "sharedFiles": [
-        { "file": "frontend/src/lib/serialize.ts", "conflictType": "structural-modify", "reason": "Adding new node type cases to mapNodeToStep switch" }
+        { "file": "backend/requirements.txt", "conflictType": "append-only", "reason": "add vcdvcd dependency" }
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Use vcdvcd package (pip install vcdvcd). VCD files contain hierarchical signal names like 'i2c_system_wrapper.dut.scl' — use the leaf name for matching. VCD files are small (KB range) so performance is not a concern. Return format: { timescale: str, end_time: int, signals: { name: { width: int, changes: [[time, value], ...] } } }. Normalize timescale to picoseconds. Check existing VCD files in simulation output to understand the exact hierarchy paths."
+    },
+    {
+      "id": "US-005",
+      "title": "Waveform signals API endpoint",
+      "description": "As a frontend developer, I want a REST endpoint that returns parsed VCD signal data as JSON so I can render waveforms in the browser.",
+      "acceptanceCriteria": [
+        "New endpoint: GET /api/waveform/{waveform_id}/signals",
+        "Accepts optional 'signals' query parameter (comma-separated signal names)",
+        "When signals param is omitted, returns all available signals",
+        "Response format: { timescale, end_time, signals: { [name]: { width, changes } } }",
+        "Returns 404 if waveform_id not found",
+        "Returns 400 if requested signal name doesn't exist in the VCD",
+        "Typecheck passes"
+      ],
+      "dependsOn": ["US-004"],
+      "sharedFiles": [
+        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "add new GET endpoint alongside existing waveform route" }
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Add route to simulation.py alongside existing GET /api/waveform/{waveform_id}. Use vcd_path_for(waveform_id) from backend/app/services/waveform.py to locate the VCD file, then call parse_vcd() from US-004. The existing waveform service already handles VCD file lookup and 404 cases — reuse that pattern. Add Pydantic response model for type safety."
+    },
+    {
+      "id": "US-006",
+      "title": "Record per-step simulation timing",
+      "description": "As a developer, I want each protocol step result to include start_time_ps and end_time_ps so the frontend can align nodes with waveform time ranges.",
+      "acceptanceCriteria": [
+        "Cocotb driver records sim time before and after each step execution using cocotb.utils.get_sim_time(units='ps')",
+        "Non-protocol ops (reset, delay) also record timing",
+        "Step results in the API response include time_range_ps: [start, end]",
+        "RunResponse includes sim_time_total_ps field",
+        "Timing values are plausible (start < end, no overlaps between consecutive steps)",
+        "Typecheck passes"
+      ],
+      "dependsOn": [],
+      "sharedFiles": [
+        { "file": "backend/app/routes/simulation.py", "conflictType": "structural-modify", "reason": "modify RunResponse model to include timing fields" },
+        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "add timing capture in execute_sequence" }
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Key files: backend/sim/i2c_driver.py (I2CDriver class), backend/sim/test_runner.py (execute_sequence, _map_protocol_results). Use cocotb.utils.get_sim_time(units='ps') — cocotb 2.0 API. Record timing in execute_sequence() around each step execution. The _map_protocol_results() function maps driver-level TxnResult back to protocol steps — extend it to carry timing. For reset/delay ops, wrap the await with timing capture. The RunResponse Pydantic model in simulation.py needs new fields: each step gets time_range_ps (list of two ints), and top-level sim_time_total_ps. Note: sim files use bare imports since subprocess runs with cwd=sim/."
+    },
+    {
+      "id": "US-007",
+      "title": "SVG waveform renderer",
+      "description": "As a user, I want to see digital waveforms rendered below the canvas so I can visualize the I2C bus activity.",
+      "acceptanceCriteria": [
+        "New component frontend/src/components/WaveformPanel.tsx renders below the React Flow canvas",
+        "New file frontend/src/lib/waveform.ts with fetchWaveformSignals() API call and timeToX() utility",
+        "Renders digital square-wave SVG paths from signal change data",
+        "Each signal is drawn in its own row with a label on the left",
+        "SDA and SCL are shown by default",
+        "Panel is collapsible with a toggle button",
+        "Panel only appears when simulation results exist (waveform_id is set)",
+        "New types added to frontend/src/lib/api.ts for waveform signal data",
+        "Typecheck passes",
+        "Verify in browser: waveforms render correctly after simulation"
+      ],
+      "dependsOn": ["US-001", "US-005"],
+      "sharedFiles": [
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "embed WaveformPanel component and pass props" },
+        { "file": "frontend/src/lib/api.ts", "conflictType": "append-only", "reason": "add waveform signal types and fetch function" }
       ],
       "priority": 3,
       "passes": true,
-      "notes": "Update mapNodeToStep() in serialize.ts to handle the 5 new node types. The switch statement currently handles: reset, write, read, scan, delay. Add cases for: i2c_start, i2c_stop, repeated_start, send_byte, recv_byte.\n\nSendByte serialization: {op: 'send_byte', data: formatHex(node.data.data)}\nRecvByte serialization: {op: 'recv_byte', ack: node.data.ack}\nStart/Stop/RepeatedStart: just {op: '<name>'}, no additional fields.\n\nUpdate serialize.test.ts with new test cases. The serializeFlowWithOrder function should also work with the new types."
+      "notes": "SVG path generation: for each signal change [time, value], draw vertical transition then horizontal hold. Use timeToX(time_ps) = LABEL_WIDTH + (time_ps / total_time) * WAVEFORM_WIDTH. Signal labels go in left column (LABEL_WIDTH wide). WaveformPanel sits below the React Flow canvas div, inside the same flex container. Fetch signal data from GET /api/waveform/{id}/signals after simulation completes. The panel should be a new div below the ReactFlow component, not inside it."
     },
     {
-      "id": "US-010",
-      "title": "Protocol Sequence Visual Indicators",
-      "description": "As a user, I want visual feedback about protocol sequence validity on the canvas so that I can see errors before running.",
+      "id": "US-008",
+      "title": "Signal selector",
+      "description": "As a user, I want to select which signals to display in the waveform panel so I can focus on relevant signals or add debug signals.",
       "acceptanceCriteria": [
-        "Start and Stop nodes show warning icon if unpaired (Start without Stop in chain, or vice versa)",
-        "SendByte/RecvByte nodes show warning if not between Start and Stop in the chain",
-        "First SendByte after Start shows decoded address + R/W direction as helper text",
-        "RecvByte shows warning if used in write mode (address byte LSB=0)",
-        "Validation runs on every flow change and results stored in node.data.warning",
+        "A signal selector UI lists all available signals from the VCD",
+        "Users can toggle individual signals on/off",
+        "SDA and SCL are enabled by default",
+        "Additional signals (busy, done, ack_error, state, etc.) can be toggled on",
+        "Signal order in the panel matches the selection order",
         "Typecheck passes",
-        "Verify in browser: warnings appear for invalid protocol sequences"
+        "Verify in browser: toggling signals adds/removes waveform rows"
       ],
-      "dependsOn": ["US-009"],
+      "dependsOn": ["US-007"],
+      "sharedFiles": [],
+      "priority": 4,
+      "passes": true,
+      "notes": "Add signal selector UI to WaveformPanel (e.g., a row of toggle chips/checkboxes above the waveform area). Store selected signals in local state. When selection changes, filter the rendered signal rows. The API already returns all signals when no filter param is specified — use the signal names from the response to populate the selector."
+    },
+    {
+      "id": "US-009",
+      "title": "Step region overlays",
+      "description": "As a user, I want to see semi-transparent colored regions on the waveform that correspond to each protocol step so I can correlate bus activity with steps.",
+      "acceptanceCriteria": [
+        "Semi-transparent colored rectangles overlay the waveform for each step's time range",
+        "Each step type has a distinct color matching the node color scheme",
+        "Step labels are shown within or above the overlay regions",
+        "Overlays span the full height of the waveform area",
+        "Typecheck passes",
+        "Verify in browser: colored regions appear aligned with step time ranges"
+      ],
+      "dependsOn": ["US-007", "US-006"],
       "sharedFiles": [
-        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Adding protocol validation logic that runs on flow change and updates node.data.warning" }
+        { "file": "frontend/src/components/WaveformPanel.tsx", "conflictType": "structural-modify", "reason": "add overlay rendering using step timing data" }
       ],
       "priority": 4,
       "passes": true,
-      "notes": "Create a validateProtocolFlow(nodes, edges) function in frontend/src/lib/validate.ts (or a new protocol-validate.ts). This walks the serialized chain and checks:\n1. Every i2c_start has a matching i2c_stop (or chain ends)\n2. send_byte/recv_byte only between i2c_start and i2c_stop\n3. After i2c_start, first send_byte is address byte — decode and show R/W\n4. recv_byte only valid when address byte LSB=1 (read mode)\n5. send_byte (after addr) only valid when address byte LSB=0 (write mode)\n\nStore warnings in node.data.warning (string or null). Node components should render a yellow warning icon + tooltip when data.warning is truthy.\n\nCall validateProtocolFlow in FlowCanvas whenever nodes/edges change (same pattern as existing validation). Clear warnings when flow changes."
+      "notes": "Use SVG <rect> elements with opacity ~0.15 behind the waveform paths. Color map by step type: START=blue, SEND_BYTE=green, RECV_BYTE=orange, STOP=red (match existing node styling). Use the same timeToX() function to position rects. Step timing comes from the simulation result (time_range_ps per step from US-006). Labels can be <text> elements centered in each rect."
+    },
+    {
+      "id": "US-010",
+      "title": "Post-simulation node realignment",
+      "description": "As a user, I want nodes to resize and reposition after simulation to match their actual time ranges so that nodes and waveforms are visually aligned.",
+      "acceptanceCriteria": [
+        "After simulation, each node's x-position is set to timeToX(step.start_time_ps)",
+        "Each node's width is set proportional to its time range duration",
+        "Strict linear scaling is used (no minimum width clamp)",
+        "Narrow nodes (short time steps like START/STOP) show full details on hover via tooltip",
+        "timeToX() function is shared between node layout and waveform rendering (imported from lib/waveform.ts)",
+        "Before simulation (or on reset), nodes revert to evenly-spaced default layout",
+        "Typecheck passes",
+        "Verify in browser: nodes align with waveform regions after simulation"
+      ],
+      "dependsOn": ["US-006", "US-007"],
+      "sharedFiles": [
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "add post-simulation relayout logic using step timing" },
+        { "file": "frontend/src/lib/waveform.ts", "conflictType": "structural-modify", "reason": "timeToX may need adjustment for shared use with node layout" }
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "After simulation: node[i].position.x = timeToX(step[i].start_time_ps), node[i].style.width = timeToX(step[i].end_time_ps) - timeToX(step[i].start_time_ps). Import timeToX from lib/waveform.ts. For narrow nodes, add a title attribute or Tooltip component showing full step details. When user clears results or starts new sequence, revert to default evenly-spaced layout from US-001."
+    },
+    {
+      "id": "US-011",
+      "title": "Viewport synchronization",
+      "description": "As a user, I want the waveform panel to stay aligned with the canvas when I pan or zoom so that the correspondence between nodes and waveforms is maintained.",
+      "acceptanceCriteria": [
+        "WaveformPanel receives React Flow viewport transform (x, y, zoom)",
+        "Pan and zoom transforms are applied to the waveform SVG viewport",
+        "Horizontal scrolling keeps nodes and waveform regions aligned",
+        "Zoom level changes scale the waveform proportionally",
+        "Typecheck passes",
+        "Verify in browser: panning/zooming canvas keeps waveform aligned"
+      ],
+      "dependsOn": ["US-010"],
+      "sharedFiles": [
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "pass viewport state to WaveformPanel" },
+        { "file": "frontend/src/components/WaveformPanel.tsx", "conflictType": "structural-modify", "reason": "apply viewport transform to SVG" }
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Use React Flow's useViewport() hook or onViewportChange callback to get { x, y, zoom }. Pass to WaveformPanel. Apply transform to SVG content group: <g transform={`translate(${viewport.x}, 0) scale(${viewport.zoom})`}>. Only sync horizontal (x) and zoom — vertical pan is independent. Consider throttling viewport updates if performance is an issue."
+    },
+    {
+      "id": "US-012",
+      "title": "Hover/click cross-highlighting",
+      "description": "As a user, I want hovering over a node to highlight the corresponding waveform region (and vice versa) so I can quickly correlate steps with bus activity.",
+      "acceptanceCriteria": [
+        "Shared state (hoveredStepIndex, selectedStepIndex) is managed in App.tsx",
+        "Hovering a node highlights the corresponding waveform step overlay",
+        "Hovering a waveform step region highlights the corresponding node",
+        "Clicking selects a step (persistent highlight until another is clicked)",
+        "Highlight style is visually distinct (e.g., brighter overlay, node border glow)",
+        "Typecheck passes",
+        "Verify in browser: hover/click cross-highlighting works bidirectionally"
+      ],
+      "dependsOn": ["US-010"],
+      "sharedFiles": [
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "add hoveredStepIndex/selectedStepIndex state" },
+        { "file": "frontend/src/components/WaveformPanel.tsx", "conflictType": "structural-modify", "reason": "add hover/click handlers and highlight styling" }
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "State: { hoveredStepIndex: number | null, selectedStepIndex: number | null }. Lift to App.tsx. Pass to WaveformPanel and node components. For nodes: add onMouseEnter/onMouseLeave handlers via custom node components. For waveform: add handlers on step overlay <rect> elements. Highlight: increase overlay opacity to ~0.3 on hover, add CSS class to node (e.g., ring-2 ring-blue-400). Selected = persistent version of hover highlight."
     }
   ]
 }

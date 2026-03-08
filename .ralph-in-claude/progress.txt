@@ -8,7 +8,40 @@
 - backend/sim needs __init__.py for pytest imports (from sim.X import Y)
 - Frontend worktrees need `bun install` before tsc; NodePaletteItem helper used in Sidebar
 - Node type strings: 'i2c_start', 'i2c_stop', 'repeated_start' to avoid RF internal conflicts
+- vcdvcd timescale: dict with magnitude (Decimal), unit (str); use _UNIT_TO_PS lookup for ps conversion
+- cocotb get_sim_time uses positional 'ps' arg (not units= keyword) in cocotb 2.0
+- Horizontal layout: applyHorizontalLayout + buildAutoEdges helpers in App.tsx
 
+---
+
+## 2026-03-08T17:44+0800 - US-001: Horizontal auto-layout for nodes
+- Replaced free-form drag-drop with computed horizontal pipeline. Added applyHorizontalLayout/buildAutoEdges helpers, nodesDraggable=false, nodesConnectable=false.
+- Files changed: frontend/src/App.tsx
+- Learnings: setNodes inside onNodesChange needs functional updater to read updated list after deletion
+---
+
+## 2026-03-08T17:44+0800 - US-004: VCD parser service
+- Created vcd_parser.py with parse_vcd() using vcdvcd. Handles hierarchy flattening to leaf names, timescale normalization to ps.
+- Files changed: backend/app/services/vcd_parser.py, backend/requirements.txt, pyproject.toml
+- Learnings: vcdvcd references_to_ids maps full paths to short IDs; vcd.data[id].tv gives sorted (time, value) tuples
+---
+
+## 2026-03-08T17:44+0800 - US-006: Record per-step simulation timing
+- Added timing capture throughout sim stack. Extended TxnResult, I2CDriver methods, execute_step, RunResponse with time_range_ps and sim_time_total_ps.
+- Files changed: backend/sim/protocol_interpreter.py, backend/sim/i2c_driver.py, backend/sim/test_runner.py, backend/app/routes/simulation.py
+- Learnings: get_sim_time raises outside cocotb context; _sim_time_ps() guard returns None for unit tests
+---
+
+## 2026-03-08T17:55+0800 - US-002: Click-to-append sidebar
+- Replaced drag-and-drop with click-to-append buttons. Sidebar items changed from draggable divs to buttons with onClick calling handleAppendNode.
+- Files changed: frontend/src/App.tsx, frontend/src/components/Sidebar.tsx
+- Learnings: Changing div to button gives a11y for free (keyboard focus, ARIA role)
+---
+
+## 2026-03-08T17:55+0800 - US-005: Waveform signals API endpoint
+- Added GET /api/waveform/{id}/signals with Pydantic models. Uses parse_vcd from vcd_parser.py.
+- Files changed: backend/app/routes/simulation.py
+- Learnings: FastAPI distinguishes /waveform/{id} from /waveform/{id}/signals by literal segment, order doesn't matter
 ---
 
 ## 2026-03-08T13:00+0800 - US-001: Protocol Step Interpreter

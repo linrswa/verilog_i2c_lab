@@ -147,10 +147,14 @@ async def run_simulation(body: RunRequest) -> RunResponse:
 
     # Copy the VCD produced by the simulation to our managed storage.
     # vcd_path in result may be None (e.g. if VCD generation was disabled).
+    # The path is relative to the sim directory (subprocess cwd).
     sim_vcd_path: Optional[str] = result.get("vcd_path")
     if sim_vcd_path:
+        import pathlib as _pathlib
+        _sim_dir = _pathlib.Path(__file__).parent.parent.parent / "sim"
+        resolved_vcd = _sim_dir / sim_vcd_path
         try:
-            shutil.copy2(sim_vcd_path, waveform_path)
+            shutil.copy2(str(resolved_vcd), waveform_path)
         except OSError:
             # Non-fatal: waveform download simply will not work for this run.
             pass

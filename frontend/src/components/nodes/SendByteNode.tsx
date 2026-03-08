@@ -73,10 +73,10 @@ export function SendByteNode({ id, data }: NodeProps<SendByteNode>) {
       onMouseLeave={onMouseLeave}
       onClick={onClick}
     >
-      {/* Input handle — top */}
+      {/* Input handle — left side (horizontal layout) */}
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="in"
         className="w-3 h-3 bg-purple-500 border-2 border-white"
       />
@@ -132,10 +132,10 @@ export function SendByteNode({ id, data }: NodeProps<SendByteNode>) {
         )}
       </div>
 
-      {/* Output handle — bottom */}
+      {/* Output handle — right side (horizontal layout) */}
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="out"
         className="w-3 h-3 bg-purple-500 border-2 border-white"
       />

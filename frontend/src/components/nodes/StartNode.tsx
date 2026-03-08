@@ -59,10 +59,10 @@ export function StartNode({ data }: NodeProps<StartNode>) {
         <div className="px-3 pb-2 text-xs text-yellow-700 font-medium leading-tight">{warning}</div>
       )}
 
-      {/* Output handle — bottom only (no input handle) */}
+      {/* Output handle — right side (horizontal layout, no input handle) */}
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="out"
         className="w-3 h-3 bg-emerald-500 border-2 border-white"
       />

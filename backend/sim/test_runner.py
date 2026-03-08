@@ -93,10 +93,38 @@ from typing import Any
 
 import cocotb
 from cocotb.utils import get_sim_time
-from cocotb_tools.runner import get_runner
+import cocotb_tools.config
+from cocotb_tools.runner import get_runner, Icarus
 
 from i2c_driver import I2CDriver
 from protocol_interpreter import ProtocolInterpreter
+
+
+class _VcdIcarus(Icarus):
+    """Icarus runner that produces plain-text VCD instead of FST.
+
+    The default cocotb Icarus runner appends ``-fst`` (when ``waves=True``)
+    or ``-none`` (when ``waves=False``) to the vvp command.  Neither is
+    suitable for our use case: we want the Verilog ``$dumpfile``/``$dumpvars``
+    directives in the wrapper to produce a plain-text VCD file readable by
+    ``vcdvcd``.  This subclass overrides ``_test_command`` to omit both flags.
+    """
+
+    def _test_command(self):
+        # Reproduce the base _test_command but omit -fst/-none so
+        # $dumpfile/$dumpvars produce plain-text VCD.
+        return [
+            [
+                "vvp",
+                "-M",
+                str(cocotb_tools.config.libs_dir),
+                "-m",
+                cocotb_tools.config.lib_name("vpi", "icarus"),
+                *self.test_args,
+                str(self.sim_file),
+                *self.plusargs,
+            ]
+        ]
 
 
 def _sim_time_ps() -> int | None:
@@ -829,7 +857,9 @@ def run_simulation(
         warm and no RTL sources have changed since the last compile.
         Defaults to ``False`` (always compile).
     """
-    runner = get_runner("icarus")
+    # Use our custom _VcdIcarus runner so $dumpfile/$dumpvars produce
+    # plain-text VCD (readable by vcdvcd) instead of FST.
+    runner = _VcdIcarus()
 
     # Resolve build directory.
     resolved_build_dir = (
@@ -857,7 +887,8 @@ def run_simulation(
     vcd_filename = "i2c_system_cocotb.vcd"
     sim_env["VCD_FILENAME"] = vcd_filename
 
-    # Run the simulation.
+    # Run the simulation.  The _VcdIcarus runner omits -fst/-none so the
+    # Verilog $dumpfile/$dumpvars produce plain-text VCD automatically.
     runner.test(
         hdl_toplevel=_TOPLEVEL,
         test_module=_PY_MODULE,

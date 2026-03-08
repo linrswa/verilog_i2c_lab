@@ -33,10 +33,10 @@ export function StopNode({ data }: NodeProps<StopNode>) {
       onMouseLeave={onMouseLeave}
       onClick={onClick}
     >
-      {/* Input handle — top only (no output handle) */}
+      {/* Input handle — left side (horizontal layout, no output handle) */}
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="in"
         className="w-3 h-3 bg-rose-500 border-2 border-white"
       />

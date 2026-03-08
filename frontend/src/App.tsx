@@ -115,15 +115,16 @@ function buildDefaultData(type: string): Record<string, unknown> {
 /**
  * Map a backend op name to the React Flow node type used by the canvas.
  * Mirrors the op->type table that serialize.ts does in the forward direction.
+ * Returns null for legacy ops that have no corresponding node type.
  */
-function opToNodeType(op: string): string {
+function opToNodeType(op: string): string | null {
   switch (op) {
     case 'start':           return 'i2c_start'
     case 'stop':            return 'i2c_stop'
     case 'repeated_start':  return 'repeated_start'
     case 'send_byte':       return 'send_byte'
     case 'recv_byte':       return 'recv_byte'
-    default:                return 'i2c_start'
+    default:                return null
   }
 }
 
@@ -151,12 +152,19 @@ function stepToNodeData(step: StepPayload): Record<string, unknown> {
  * Nodes are arranged using the horizontal auto-layout.
  */
 function templateToNodesAndEdges(template: TemplateDetail): { nodes: Node[]; edges: Edge[] } {
-  const rawNodes: Node[] = template.steps.map((step, i) => ({
-    id: `template-${i}-${Date.now()}`,
-    type: opToNodeType(step.op),
-    position: { x: 0, y: 0 },
-    data: stepToNodeData(step),
-  }))
+  const now = Date.now()
+  const rawNodes: Node[] = []
+  for (let i = 0; i < template.steps.length; i++) {
+    const step = template.steps[i]
+    const nodeType = opToNodeType(step.op)
+    if (nodeType === null) continue // skip legacy ops (reset, scan, write_bytes, etc.)
+    rawNodes.push({
+      id: `template-${i}-${now}`,
+      type: nodeType,
+      position: { x: 0, y: 0 },
+      data: stepToNodeData(step),
+    })
+  }
 
   const nodes = applyHorizontalLayout(rawNodes)
   const edges = buildAutoEdges(nodes)
@@ -568,15 +576,22 @@ export default function App() {
 
       // Build node time-range map and node-to-step-index map by aligning
       // result.steps with orderedNodeIds.
-      // The backend auto-prepends a `reset` step, so skip it if present at index 0.
-      // After that, result.steps has one entry per user step (including framing ops)
-      // in the same order as orderedNodeIds.
+      // The backend auto-prepends a `reset` step then strips it from results.
+      // result.steps only contains entries for data ops (send_byte, recv_byte)
+      // and legacy ops — NOT for framing ops (start, stop, repeated_start).
+      // We must skip framing ops when iterating orderedNodeIds.
       const nodeTimeRangeMap = new Map<string, [number, number]>()
       // Maps node ID -> index in result.steps (for cross-highlighting)
       const nodeStepIndexMap = new Map<string, number>()
       let rIdx = result.steps[0]?.op === 'reset' ? 1 : 0
-      for (let i = 0; i < orderedNodeIds.length && rIdx < result.steps.length; i++) {
+      for (let i = 0; i < orderedNodeIds.length; i++) {
         const nodeId = orderedNodeIds[i]
+        const sentOp = steps[i]?.op
+        if (sentOp && noResultOps.has(sentOp)) {
+          // Framing ops produce no result entry — skip
+          continue
+        }
+        if (rIdx >= result.steps.length) break
         const resultStep = result.steps[rIdx]
         nodeStepIndexMap.set(nodeId, rIdx)
         if (resultStep?.time_range_ps) {

@@ -51,7 +51,7 @@ export interface TemplateItem {
 }
 
 export interface TemplateDetail extends TemplateItem {
-  steps: StepPayload[]
+  steps: Array<StepPayload | { op: string; [key: string]: unknown }>
 }
 
 // ─── Error helper ──────────────────────────────────────────────────────────

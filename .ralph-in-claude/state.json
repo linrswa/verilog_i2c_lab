@@ -1,119 +1,21 @@
 {
   "status": "completed",
   "conflictStrategy": "optimistic",
-  "currentWave": 5,
+  "currentWave": 8,
   "workers": [
-    {
-      "storyId": "US-001",
-      "storyTitle": "Protocol Step Interpreter",
-      "status": "completed",
-      "mode": "worktree",
-      "worktreeBranch": null,
-      "worktreePath": null,
-      "startedAt": "2026-03-08T13:00:09+0800",
-      "completedAt": "2026-03-08T13:05:00+0800",
-      "retryCount": 0
-    },
-    {
-      "storyId": "US-007",
-      "storyTitle": "Protocol Control Nodes (Start, Stop, RepeatedStart)",
-      "status": "completed",
-      "mode": "worktree",
-      "worktreeBranch": null,
-      "worktreePath": null,
-      "startedAt": "2026-03-08T13:00:09+0800",
-      "completedAt": "2026-03-08T13:05:00+0800",
-      "retryCount": 0
-    },
-    {
-      "storyId": "US-002",
-      "storyTitle": "Driver Execute Transaction List",
-      "status": "completed",
-      "mode": "worktree",
-      "worktreeBranch": null,
-      "worktreePath": null,
-      "startedAt": "2026-03-08T13:10:36+0800",
-      "completedAt": "2026-03-08T13:16:00+0800",
-      "retryCount": 0
-    },
-    {
-      "storyId": "US-005",
-      "storyTitle": "Protocol Sequence Validation",
-      "status": "completed",
-      "mode": "worktree",
-      "worktreeBranch": null,
-      "worktreePath": null,
-      "startedAt": "2026-03-08T13:10:36+0800",
-      "completedAt": "2026-03-08T13:16:00+0800",
-      "retryCount": 0
-    },
-    {
-      "storyId": "US-008",
-      "storyTitle": "Data Transfer Nodes (SendByte, RecvByte)",
-      "status": "completed",
-      "mode": "worktree",
-      "worktreeBranch": null,
-      "worktreePath": null,
-      "startedAt": "2026-03-08T13:10:36+0800",
-      "completedAt": "2026-03-08T13:16:00+0800",
-      "retryCount": 0
-    },
-    {
-      "storyId": "US-003",
-      "storyTitle": "Cocotb Tests for Repeated Start",
-      "status": "completed",
-      "mode": "worktree",
-      "worktreeBranch": null,
-      "worktreePath": null,
-      "startedAt": "2026-03-08T13:16:31+0800",
-      "completedAt": "2026-03-08T13:42:00+0800",
-      "retryCount": 0
-    },
-    {
-      "storyId": "US-009",
-      "storyTitle": "Serialization for Protocol-Level Nodes",
-      "status": "completed",
-      "mode": "worktree",
-      "worktreeBranch": null,
-      "worktreePath": null,
-      "startedAt": "2026-03-08T13:16:31+0800",
-      "completedAt": "2026-03-08T13:18:00+0800",
-      "retryCount": 0
-    },
-    {
-      "storyId": "US-004",
-      "storyTitle": "Protocol-Level Step Ops in Test Runner",
-      "status": "completed",
-      "mode": "worktree",
-      "worktreeBranch": null,
-      "worktreePath": null,
-      "startedAt": "2026-03-08T13:42:51+0800",
-      "completedAt": "2026-03-08T13:49:00+0800",
-      "retryCount": 0
-    },
-    {
-      "storyId": "US-010",
-      "storyTitle": "Protocol Sequence Visual Indicators",
-      "status": "completed",
-      "mode": "worktree",
-      "worktreeBranch": null,
-      "worktreePath": null,
-      "startedAt": "2026-03-08T13:42:51+0800",
-      "completedAt": "2026-03-08T13:49:00+0800",
-      "retryCount": 0
-    },
-    {
-      "storyId": "US-006",
-      "storyTitle": "Integration Test — Protocol Sequences via API",
-      "status": "completed",
-      "mode": "direct",
-      "worktreeBranch": null,
-      "worktreePath": null,
-      "startedAt": "2026-03-08T13:49:00+0800",
-      "completedAt": "2026-03-08T13:51:16+0800",
-      "retryCount": 0
-    }
+    { "storyId": "US-001", "storyTitle": "Horizontal auto-layout for nodes", "status": "completed", "mode": "worktree", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T17:44:29+0800", "completedAt": "2026-03-08T17:47:00+0800", "retryCount": 0 },
+    { "storyId": "US-004", "storyTitle": "VCD parser service", "status": "completed", "mode": "worktree", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T17:44:29+0800", "completedAt": "2026-03-08T17:47:00+0800", "retryCount": 0 },
+    { "storyId": "US-006", "storyTitle": "Record per-step simulation timing", "status": "completed", "mode": "worktree", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T17:44:29+0800", "completedAt": "2026-03-08T17:50:00+0800", "retryCount": 0 },
+    { "storyId": "US-002", "storyTitle": "Click-to-append sidebar", "status": "completed", "mode": "worktree", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T17:55:19+0800", "completedAt": "2026-03-08T17:57:00+0800", "retryCount": 0 },
+    { "storyId": "US-005", "storyTitle": "Waveform signals API endpoint", "status": "completed", "mode": "worktree", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T17:55:19+0800", "completedAt": "2026-03-08T17:57:00+0800", "retryCount": 0 },
+    { "storyId": "US-003", "storyTitle": "Drag-to-reorder nodes", "status": "completed", "mode": "direct", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T17:58:00+0800", "completedAt": "2026-03-08T18:00:00+0800", "retryCount": 0 },
+    { "storyId": "US-007", "storyTitle": "SVG waveform renderer", "status": "completed", "mode": "direct", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T18:01:00+0800", "completedAt": "2026-03-08T18:04:00+0800", "retryCount": 0 },
+    { "storyId": "US-008", "storyTitle": "Signal selector", "status": "completed", "mode": "worktree", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T18:05:00+0800", "completedAt": "2026-03-08T18:08:00+0800", "retryCount": 0 },
+    { "storyId": "US-009", "storyTitle": "Step region overlays", "status": "completed", "mode": "worktree", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T18:05:00+0800", "completedAt": "2026-03-08T18:10:00+0800", "retryCount": 0 },
+    { "storyId": "US-010", "storyTitle": "Post-simulation node realignment", "status": "completed", "mode": "direct", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T18:11:00+0800", "completedAt": "2026-03-08T18:16:00+0800", "retryCount": 0 },
+    { "storyId": "US-011", "storyTitle": "Viewport synchronization", "status": "completed", "mode": "direct", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T18:17:00+0800", "completedAt": "2026-03-08T18:22:00+0800", "retryCount": 0 },
+    { "storyId": "US-012", "storyTitle": "Hover/click cross-highlighting", "status": "completed", "mode": "direct", "worktreeBranch": null, "worktreePath": null, "startedAt": "2026-03-08T18:23:00+0800", "completedAt": "2026-03-08T18:28:00+0800", "retryCount": 0 }
   ],
   "failedStories": {},
-  "lastUpdated": "2026-03-08T13:51:16+0800"
+  "lastUpdated": "2026-03-08T18:28:00+0800"
 }

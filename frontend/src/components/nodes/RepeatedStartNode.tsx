@@ -33,10 +33,10 @@ export function RepeatedStartNode({ data }: NodeProps<RepeatedStartNode>) {
       onMouseLeave={onMouseLeave}
       onClick={onClick}
     >
-      {/* Input handle — top */}
+      {/* Input handle — left side (horizontal layout) */}
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="in"
         className="w-3 h-3 bg-orange-500 border-2 border-white"
       />
@@ -67,10 +67,10 @@ export function RepeatedStartNode({ data }: NodeProps<RepeatedStartNode>) {
         <div className="px-3 pb-2 text-xs text-yellow-700 font-medium leading-tight">{warning}</div>
       )}
 
-      {/* Output handle — bottom */}
+      {/* Output handle — right side (horizontal layout) */}
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="out"
         className="w-3 h-3 bg-orange-500 border-2 border-white"
       />

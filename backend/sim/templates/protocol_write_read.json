@@ -1,0 +1,20 @@
+{
+  "name": "Protocol Write + Read",
+  "description": "Write 0xDE 0xAD to register 0x00 of slave 0x50, then read back 2 bytes using repeated start",
+  "steps": [
+    {"op": "start"},
+    {"op": "send_byte", "data": "0xA0"},
+    {"op": "send_byte", "data": "0x00"},
+    {"op": "send_byte", "data": "0xDE"},
+    {"op": "send_byte", "data": "0xAD"},
+    {"op": "stop"},
+    {"op": "start"},
+    {"op": "send_byte", "data": "0xA0"},
+    {"op": "send_byte", "data": "0x00"},
+    {"op": "repeated_start"},
+    {"op": "send_byte", "data": "0xA1"},
+    {"op": "recv_byte", "ack": true},
+    {"op": "recv_byte", "ack": false},
+    {"op": "stop"}
+  ]
+}
