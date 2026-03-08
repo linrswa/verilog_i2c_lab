@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getWaveformSignals } from '../lib/api'
-import type { WaveformSignalsResponse } from '../lib/api'
+import type { WaveformSignalsResponse, StepResult } from '../lib/api'
 import { buildTimeToX } from '../lib/waveform'
 
 // ── Layout constants ──────────────────────────────────────────────────────────
@@ -142,11 +142,140 @@ function SignalRow({ name, changes, endTimePs, timeToX, rowIndex, svgWidth }: Si
   )
 }
 
+// ── Step overlay color map ────────────────────────────────────────────────────
+
+/**
+ * Maps a protocol step op name to a semi-transparent fill color.
+ * Colors are chosen to match the node color scheme used in the canvas.
+ */
+const STEP_OVERLAY_COLORS: Record<string, string> = {
+  start:          'rgba(59, 130, 246, 0.15)',   // blue  — matches StartNode
+  repeated_start: 'rgba(139, 92, 246, 0.15)',   // purple — matches RepeatedStartNode
+  send_byte:      'rgba(34, 197, 94, 0.15)',    // green — matches SendByteNode
+  recv_byte:      'rgba(249, 115, 22, 0.15)',   // orange — matches RecvByteNode
+  stop:           'rgba(239, 68, 68, 0.15)',    // red   — matches StopNode
+  reset:          'rgba(107, 114, 128, 0.15)',  // gray  — internal reset step
+}
+
+const STEP_OVERLAY_STROKE_COLORS: Record<string, string> = {
+  start:          'rgba(59, 130, 246, 0.4)',
+  repeated_start: 'rgba(139, 92, 246, 0.4)',
+  send_byte:      'rgba(34, 197, 94, 0.4)',
+  recv_byte:      'rgba(249, 115, 22, 0.4)',
+  stop:           'rgba(239, 68, 68, 0.4)',
+  reset:          'rgba(107, 114, 128, 0.4)',
+}
+
+const STEP_LABEL_COLORS: Record<string, string> = {
+  start:          '#1d4ed8',
+  repeated_start: '#6d28d9',
+  send_byte:      '#15803d',
+  recv_byte:      '#c2410c',
+  stop:           '#b91c1c',
+  reset:          '#374151',
+}
+
+function stepFillColor(op: string): string {
+  return STEP_OVERLAY_COLORS[op] ?? 'rgba(107, 114, 128, 0.12)'
+}
+
+function stepStrokeColor(op: string): string {
+  return STEP_OVERLAY_STROKE_COLORS[op] ?? 'rgba(107, 114, 128, 0.35)'
+}
+
+function stepLabelColor(op: string): string {
+  return STEP_LABEL_COLORS[op] ?? '#374151'
+}
+
+/** Human-readable label for a step op. */
+function stepLabel(op: string): string {
+  switch (op) {
+    case 'start':          return 'START'
+    case 'repeated_start': return 'R-START'
+    case 'send_byte':      return 'SEND'
+    case 'recv_byte':      return 'RECV'
+    case 'stop':           return 'STOP'
+    case 'reset':          return 'RST'
+    default:               return op.toUpperCase()
+  }
+}
+
+// ── Step overlay layer ────────────────────────────────────────────────────────
+
+interface StepOverlaysProps {
+  steps: StepResult[]
+  timeToX: (t: number) => number
+  svgHeight: number
+  svgWidth: number
+}
+
+/**
+ * Renders semi-transparent colored rectangles and centered labels for each
+ * protocol step that has a `time_range_ps` value.  These overlays sit behind
+ * the signal path elements so the waveform traces remain readable.
+ */
+function StepOverlays({ steps, timeToX, svgHeight, svgWidth }: StepOverlaysProps) {
+  const overlays = steps.filter((s) => s.time_range_ps != null)
+
+  if (overlays.length === 0) return null
+
+  return (
+    <g data-testid="step-overlays">
+      {overlays.map((step, idx) => {
+        const [startPs, endPs] = step.time_range_ps!
+        const x1 = timeToX(startPs)
+        const x2 = timeToX(endPs)
+        const width = Math.max(x2 - x1, 1)
+
+        // Clamp to waveform area (past the label column)
+        const clampedX = Math.max(x1, 0)
+        const clampedWidth = Math.min(width, svgWidth - clampedX)
+
+        if (clampedWidth <= 0) return null
+
+        const labelX = clampedX + clampedWidth / 2
+        const labelY = 9
+
+        return (
+          <g key={`${step.op}-${idx}`}>
+            <rect
+              x={clampedX}
+              y={0}
+              width={clampedWidth}
+              height={svgHeight}
+              fill={stepFillColor(step.op)}
+              stroke={stepStrokeColor(step.op)}
+              strokeWidth={0.8}
+            />
+            <text
+              x={labelX}
+              y={labelY}
+              textAnchor="middle"
+              dominantBaseline="hanging"
+              fontSize={8}
+              fontFamily="monospace"
+              fontWeight="600"
+              fill={stepLabelColor(step.op)}
+            >
+              {stepLabel(step.op)}
+            </text>
+          </g>
+        )
+      })}
+    </g>
+  )
+}
+
 // ── WaveformPanel ─────────────────────────────────────────────────────────────
 
 interface WaveformPanelProps {
   /** The waveform UUID returned by the simulation run. Null hides the panel. */
   waveformId: string | null
+  /**
+   * Step results from the simulation run.  Steps with a `time_range_ps` field
+   * will be rendered as semi-transparent overlay regions on the waveform.
+   */
+  steps?: StepResult[]
 }
 
 /**
@@ -156,7 +285,7 @@ interface WaveformPanelProps {
  * It sits below the ReactFlow canvas in the same flex column and is
  * collapsible via a toggle button.
  */
-export function WaveformPanel({ waveformId }: WaveformPanelProps) {
+export function WaveformPanel({ waveformId, steps = [] }: WaveformPanelProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [waveformData, setWaveformData] = useState<WaveformSignalsResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -304,6 +433,14 @@ export function WaveformPanel({ waveformId }: WaveformPanelProps) {
             >
               {/* Background */}
               <rect x={0} y={0} width={svgWidth} height={svgHeight} fill="#ffffff" />
+
+              {/* Step overlays — rendered behind signal paths */}
+              <StepOverlays
+                steps={steps}
+                timeToX={timeToX}
+                svgHeight={svgHeight}
+                svgWidth={svgWidth}
+              />
 
               {/* Signal rows */}
               {availableSignals.map((signalName, rowIndex) => {
