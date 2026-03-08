@@ -9,19 +9,26 @@ export interface StepResult {
   /** Derived from backend `status` field: true when status === 'ok'. */
   passed: boolean
   status?: string
-  // read_bytes result fields
-  data?: number[]
-  match?: boolean
-  // scan result fields
-  found?: boolean
+  /** Byte value sent/received (hex string, e.g. "0xA0") */
+  data?: string | number[]
+  /** ACK status — for send_byte: slave ACK'd; for recv_byte: master sent ACK */
+  ack?: boolean
+  /** Decoded address (hex string) — only on address byte (first send_byte after start) */
+  addr?: string
+  /** Read/write direction — only on address byte */
+  rw?: string
+  /** Error message when status is "error" */
+  message?: string
   [key: string]: unknown
 }
 
 export interface SimulationResult {
   passed: boolean
   steps: StepResult[]
-  /** 256-element array of register values (indices 0–255) */
-  register_dump: number[]
+  /** Slave EEPROM snapshot: address (as string key) → byte value */
+  register_dump: Record<string, number>
+  /** Current slave register pointer (0–255) */
+  reg_pointer: number
   waveform_id?: string
 }
 

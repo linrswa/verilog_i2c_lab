@@ -588,6 +588,7 @@ def _step_passed(result: dict) -> bool:
 def build_final_result(
     step_results: list[dict],
     register_dump: dict,
+    reg_pointer: int = 0,
     vcd_path: str | None = None,
 ) -> dict:
     """Assemble the top-level JSON result dict from per-step results.
@@ -599,6 +600,8 @@ def build_final_result(
     register_dump:
         Register snapshot returned by ``I2CDriver.get_register_dump()``.
         Keyed by register address (int), values are byte values (int).
+    reg_pointer:
+        Current slave register pointer value (0–255).
     vcd_path:
         Filesystem path to the VCD waveform file, or ``None`` if the
         simulation did not produce one.
@@ -611,6 +614,7 @@ def build_final_result(
         - ``"passed"``        — ``True`` when every step passes (bool)
         - ``"steps"``         — list of per-step result dicts
         - ``"register_dump"`` — register snapshot (keys are int addresses)
+        - ``"reg_pointer"``   — current slave register pointer (int)
         - ``"vcd_path"``      — path string or ``None``
     """
     passed = all(_step_passed(r) for r in step_results)
@@ -618,6 +622,7 @@ def build_final_result(
         "passed": passed,
         "steps": step_results,
         "register_dump": register_dump,
+        "reg_pointer": reg_pointer,
         "vcd_path": vcd_path,
     }
 
@@ -655,7 +660,8 @@ async def run_sequence(
     """
     step_results = await execute_sequence(driver, steps)
     register_dump = await driver.get_register_dump()
-    return build_final_result(step_results, register_dump, vcd_path)
+    reg_pointer = await driver.get_reg_pointer()
+    return build_final_result(step_results, register_dump, reg_pointer, vcd_path)
 
 
 # ---------------------------------------------------------------------------

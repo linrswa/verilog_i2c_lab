@@ -1,38 +1,7 @@
 import type { Edge } from '@xyflow/react'
 
-// ─── Node data shapes (mirrors the component interfaces) ─────────────────────
+// ─── Node data shapes ────────────────────────────────────────────────────────
 
-interface ResetData {
-  [key: string]: unknown
-}
-
-interface WriteData {
-  address: string
-  register: string
-  data: string
-  [key: string]: unknown
-}
-
-interface ReadData {
-  address: string
-  register: string
-  n: string
-  expect: string
-  [key: string]: unknown
-}
-
-interface ScanData {
-  address: string
-  expect: string
-  [key: string]: unknown
-}
-
-interface DelayData {
-  cycles: string
-  [key: string]: unknown
-}
-
-// Protocol-level node data shapes (Phase 4 — US-008 will populate these)
 export interface SendByteData {
   data: string  // hex string e.g. "0xA0"
   [key: string]: unknown
@@ -47,42 +16,10 @@ export interface RecvByteData {
 export interface FlowNode {
   id: string
   type?: string
-  data: ResetData | WriteData | ReadData | ScanData | DelayData | SendByteData | RecvByteData
+  data: SendByteData | RecvByteData | Record<string, unknown>
 }
 
 // ─── Backend step payloads ────────────────────────────────────────────────────
-
-export interface ResetStep {
-  op: 'reset'
-}
-
-export interface WriteStep {
-  op: 'write_bytes'
-  addr: string
-  reg: string
-  data: string[]
-}
-
-export interface ReadStep {
-  op: 'read_bytes'
-  addr: string
-  reg: string
-  n: number
-  expect?: string[]
-}
-
-export interface ScanStep {
-  op: 'scan'
-  addr: string
-  expect?: boolean
-}
-
-export interface DelayStep {
-  op: 'delay'
-  cycles: number
-}
-
-// ─── Protocol-level step payloads (Phase 4) ──────────────────────────────────
 
 export interface StartStep {
   op: 'start'
@@ -107,11 +44,6 @@ export interface RecvByteStep {
 }
 
 export type StepPayload =
-  | ResetStep
-  | WriteStep
-  | ReadStep
-  | ScanStep
-  | DelayStep
   | StartStep
   | StopStep
   | RepeatedStartStep
@@ -131,18 +63,6 @@ function formatHex(raw: string): string {
   const parsed = parseInt(trimmed, 16)
   if (isNaN(parsed)) return trimmed
   return '0x' + parsed.toString(16).toUpperCase()
-}
-
-/**
- * Split a comma-separated hex string into an array of formatted hex strings.
- * Empty tokens (e.g. trailing comma) are filtered out.
- */
-function parseHexList(raw: string): string[] {
-  return raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-    .map(formatHex)
 }
 
 // ─── Topological sort & chain selection ──────────────────────────────────────
@@ -199,54 +119,6 @@ function mapNodeToStep(node: FlowNode): StepPayload | null {
   const { type, data } = node
 
   switch (type) {
-    case 'reset':
-      return { op: 'reset' }
-
-    case 'write': {
-      const d = data as WriteData
-      const step: WriteStep = {
-        op: 'write_bytes',
-        addr: formatHex(d.address ?? ''),
-        reg: formatHex(d.register ?? ''),
-        data: parseHexList(d.data ?? ''),
-      }
-      return step
-    }
-
-    case 'read': {
-      const d = data as ReadData
-      const step: ReadStep = {
-        op: 'read_bytes',
-        addr: formatHex(d.address ?? ''),
-        reg: formatHex(d.register ?? ''),
-        n: parseInt(d.n ?? '1', 10) || 1,
-      }
-      const expectList = parseHexList(d.expect ?? '')
-      if (expectList.length > 0) step.expect = expectList
-      return step
-    }
-
-    case 'scan': {
-      const d = data as ScanData
-      const step: ScanStep = {
-        op: 'scan',
-        addr: formatHex(d.address ?? ''),
-      }
-      const expectRaw = (d.expect ?? '').trim()
-      if (expectRaw === 'true') step.expect = true
-      else if (expectRaw === 'false') step.expect = false
-      return step
-    }
-
-    case 'delay': {
-      const d = data as DelayData
-      return {
-        op: 'delay',
-        cycles: parseInt(d.cycles ?? '100', 10) || 100,
-      }
-    }
-
-    // ── Protocol-level nodes (Phase 4) ─────────────────────────────────────
     case 'i2c_start':
       return { op: 'start' }
 

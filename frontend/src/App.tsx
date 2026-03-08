@@ -18,11 +18,6 @@ import { Toolbar } from './components/Toolbar'
 import { Sidebar } from './components/Sidebar'
 import { ResultPanel } from './components/ResultPanel'
 import {
-  ResetNode,
-  WriteNode,
-  ReadNode,
-  ScanNode,
-  DelayNode,
   StartNode,
   StopNode,
   RepeatedStartNode,
@@ -46,11 +41,6 @@ type NodeStatusMap = Map<string, 'ok' | 'fail'>
 
 // Register all custom node types — passed to <ReactFlow nodeTypes={...}>
 const nodeTypes: NodeTypes = {
-  reset: ResetNode,
-  write: WriteNode,
-  read: ReadNode,
-  scan: ScanNode,
-  delay: DelayNode,
   i2c_start: StartNode,
   i2c_stop: StopNode,
   repeated_start: RepeatedStartNode,
@@ -58,20 +48,9 @@ const nodeTypes: NodeTypes = {
   recv_byte: RecvByteNode,
 }
 
-// Default data for each node type per acceptance criteria:
-// address=0x50, register=0x00, data=[], n=1, cycles=100
+// Default data for each node type
 function buildDefaultData(type: string): Record<string, unknown> {
   switch (type) {
-    case 'reset':
-      return {}
-    case 'write':
-      return { address: '0x50', register: '0x00', data: '' }
-    case 'read':
-      return { address: '0x50', register: '0x00', n: '1', expect: '' }
-    case 'scan':
-      return { address: '0x50', expect: '' }
-    case 'delay':
-      return { cycles: '100' }
     case 'i2c_start':
     case 'i2c_stop':
     case 'repeated_start':
@@ -91,15 +70,12 @@ function buildDefaultData(type: string): Record<string, unknown> {
  */
 function opToNodeType(op: string): string {
   switch (op) {
-    case 'reset':           return 'reset'
-    case 'write_bytes':     return 'write'
-    case 'read_bytes':      return 'read'
-    case 'scan':            return 'scan'
-    case 'delay':           return 'delay'
     case 'start':           return 'i2c_start'
     case 'stop':            return 'i2c_stop'
     case 'repeated_start':  return 'repeated_start'
-    default:                return 'reset'
+    case 'send_byte':       return 'send_byte'
+    case 'recv_byte':       return 'recv_byte'
+    default:                return 'i2c_start'
   }
 }
 
@@ -109,35 +85,14 @@ function opToNodeType(op: string): string {
  */
 function stepToNodeData(step: StepPayload): Record<string, unknown> {
   switch (step.op) {
-    case 'reset':
-      return {}
-    case 'write_bytes':
-      return {
-        address: step.addr ?? '0x50',
-        register: step.reg ?? '0x00',
-        data: (step.data ?? []).join(', '),
-      }
-    case 'read_bytes':
-      return {
-        address: step.addr ?? '0x50',
-        register: step.reg ?? '0x00',
-        n: String(step.n ?? 1),
-        expect: (step.expect ?? []).join(', '),
-      }
-    case 'scan':
-      return {
-        address: step.addr ?? '0x50',
-        expect: step.expect !== undefined ? String(step.expect) : '',
-      }
-    case 'delay':
-      return {
-        cycles: String(step.cycles ?? 100),
-      }
     case 'start':
     case 'stop':
     case 'repeated_start':
       return {}
-    // US-008: send_byte and recv_byte cases will be added here
+    case 'send_byte':
+      return { data: step.data ?? '0xA0' }
+    case 'recv_byte':
+      return { ack: step.ack ?? true }
     default:
       return {}
   }
@@ -467,7 +422,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Main body: sidebar + canvas */}
+      {/* Main body: sidebar + canvas + result panel */}
       <div className="flex flex-row flex-1 overflow-hidden">
         <Sidebar />
 
@@ -483,9 +438,9 @@ export default function App() {
             onViewportRestored={() => setViewportRestored(true)}
           />
         </ReactFlowProvider>
-      </div>
 
-      <ResultPanel result={simulationResult} />
+        <ResultPanel result={simulationResult} />
+      </div>
     </div>
   )
 }

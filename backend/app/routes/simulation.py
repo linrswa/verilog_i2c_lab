@@ -71,6 +71,7 @@ class RunResponse(BaseModel):
     passed: bool
     steps: list[dict[str, Any]]
     register_dump: dict[str, Any]
+    reg_pointer: int
     waveform_id: str
 
 
@@ -141,6 +142,7 @@ async def run_simulation(body: RunRequest) -> RunResponse:
         passed=result.get("passed", False),
         steps=result.get("steps", []),
         register_dump=result.get("register_dump", {}),
+        reg_pointer=result.get("reg_pointer", 0),
         waveform_id=waveform_id,
     )
 

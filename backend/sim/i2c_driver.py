@@ -823,6 +823,20 @@ class I2CDriver:
                 dump[i] = 0x00
         return dump
 
+    async def get_reg_pointer(self) -> int:
+        """Return the current value of the slave's internal register pointer.
+
+        Returns
+        -------
+        int
+            Current ``reg_addr`` value (0–255).
+        """
+        slave = self._dut.dut.slave_inst
+        try:
+            return int(slave.reg_addr.value)
+        except ValueError:
+            return 0
+
     # ------------------------------------------------------------------
     # Convenience properties
     # ------------------------------------------------------------------

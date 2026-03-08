@@ -6,18 +6,17 @@ interface ResultPanelProps {
   result: SimulationResult | null
 }
 
-// ─── Register dump grid ───────────────────────────────────────────────────────
+// ─── EEPROM memory dump ──────────────────────────────────────────────────────
 
 /**
- * Renders a 16-column × 16-row hex table for the 256-byte register file.
- * Row headers are the high nibble (0x00, 0x10, ...) and column headers are
- * the low nibble (0–F).
+ * Renders a 16-column × 16-row hex table showing the slave EEPROM contents.
+ * Non-zero cells are highlighted so the user can quickly see which addresses
+ * were written to during the simulation.
  */
-function RegisterDump({ dump }: { dump: number[] }) {
+function EepromDump({ dump, regPointer }: { dump: Record<string, number>; regPointer: number }) {
   const COLS = 16
-
-  // Pad or trim to exactly 256 entries
-  const bytes = Array.from({ length: 256 }, (_, i) => dump[i] ?? 0)
+  const bytes = Array.from({ length: 256 }, (_, i) => dump[String(i)] ?? 0)
+  const hasData = bytes.some((b) => b !== 0)
 
   const colHeaders = Array.from({ length: COLS }, (_, i) =>
     i.toString(16).toUpperCase(),
@@ -26,13 +25,21 @@ function RegisterDump({ dump }: { dump: number[] }) {
   return (
     <div>
       <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
-        Register Dump
+        Slave EEPROM Memory (256 bytes)
       </p>
+      <p className="text-xs text-gray-600 mb-1 font-mono">
+        reg_pointer → <span className="font-semibold text-indigo-600">0x{regPointer.toString(16).toUpperCase().padStart(2, '0')}</span>
+        <span className="text-gray-400 ml-1">({regPointer})</span>
+      </p>
+      {!hasData && (
+        <p className="text-xs text-gray-400 italic mb-2">
+          All zeros — no data was written to the slave.
+        </p>
+      )}
       <div className="overflow-x-auto">
         <table className="text-xs font-mono border-collapse">
           <thead>
             <tr>
-              {/* empty corner */}
               <th className="px-1.5 py-0.5 text-gray-400 border border-gray-200 bg-gray-50" />
               {colHeaders.map((h) => (
                 <th
@@ -47,19 +54,25 @@ function RegisterDump({ dump }: { dump: number[] }) {
           <tbody>
             {Array.from({ length: COLS }, (_, row) => (
               <tr key={row}>
-                {/* Row address label */}
                 <td className="px-1.5 py-0.5 text-gray-400 border border-gray-200 bg-gray-50 font-semibold">
                   {(row * COLS).toString(16).toUpperCase().padStart(2, '0')}
                 </td>
                 {Array.from({ length: COLS }, (_, col) => {
-                  const value = bytes[row * COLS + col]
+                  const addr = row * COLS + col
+                  const value = bytes[addr]
+                  const isPointer = addr === regPointer
                   const isNonZero = value !== 0
                   return (
                     <td
                       key={col}
-                      className={`px-1.5 py-0.5 border border-gray-200 text-center ${
-                        isNonZero ? 'text-indigo-700 bg-indigo-50' : 'text-gray-400'
+                      className={`px-1.5 py-0.5 border text-center ${
+                        isPointer
+                          ? 'text-orange-700 bg-orange-100 font-bold border-orange-400 ring-1 ring-orange-400'
+                          : isNonZero
+                            ? 'text-indigo-700 bg-indigo-50 font-semibold border-gray-200'
+                            : 'text-gray-300 border-gray-200'
                       }`}
+                      title={isPointer ? `reg_pointer → 0x${addr.toString(16).toUpperCase().padStart(2, '0')}` : undefined}
                     >
                       {value.toString(16).toUpperCase().padStart(2, '0')}
                     </td>
@@ -78,28 +91,28 @@ function RegisterDump({ dump }: { dump: number[] }) {
 
 function stepDetails(step: StepResult): string {
   switch (step.op) {
-    case 'read_bytes': {
+    case 'send_byte': {
       const parts: string[] = []
-      if (Array.isArray(step.data)) {
-        const hex = (step.data as number[]).map(
-          (b) => '0x' + b.toString(16).toUpperCase().padStart(2, '0'),
-        )
-        parts.push(`data=[${hex.join(', ')}]`)
+      if (typeof step.data === 'string') {
+        parts.push(`TX ${step.data}`)
       }
-      if (typeof step.match === 'boolean') {
-        parts.push(`match=${step.match ? 'pass' : 'fail'}`)
+      if (step.addr) {
+        parts.push(`(Addr ${step.addr} ${step.rw ?? ''})`)
       }
-      return parts.join('  ')
+      parts.push(step.passed ? 'ACK' : 'NACK')
+      return parts.join(' ')
     }
-    case 'scan': {
+    case 'recv_byte': {
       const parts: string[] = []
-      if (typeof step.found === 'boolean') {
-        parts.push(`found=${step.found}`)
+      if (typeof step.data === 'string') {
+        parts.push(`RX ${step.data}`)
+      } else {
+        parts.push('RX --')
       }
-      if (typeof step.match === 'boolean') {
-        parts.push(`match=${step.match ? 'pass' : 'fail'}`)
+      if (typeof step.ack === 'boolean') {
+        parts.push(step.ack ? 'ACK' : 'NACK')
       }
-      return parts.join('  ')
+      return parts.join(' ')
     }
     default:
       return ''
@@ -108,13 +121,25 @@ function stepDetails(step: StepResult): string {
 
 // ─── Step row ─────────────────────────────────────────────────────────────────
 
+/** Human-readable label for each op */
+function opLabel(op: string): string {
+  switch (op) {
+    case 'start':           return 'START'
+    case 'stop':            return 'STOP'
+    case 'repeated_start':  return 'Sr'
+    case 'send_byte':       return 'SEND'
+    case 'recv_byte':       return 'RECV'
+    default:                return op
+  }
+}
+
 function StepRow({ step, index }: { step: StepResult; index: number }) {
   const details = stepDetails(step)
   const isPassed = step.passed
 
   return (
     <div
-      className={`flex items-start gap-2 px-2 py-1.5 rounded text-xs font-mono ${
+      className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs font-mono ${
         isPassed
           ? 'bg-green-50 text-green-800'
           : 'bg-red-100 text-red-800'
@@ -122,7 +147,7 @@ function StepRow({ step, index }: { step: StepResult; index: number }) {
     >
       {/* Status dot */}
       <span
-        className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${
+        className={`w-2 h-2 rounded-full flex-shrink-0 ${
           isPassed ? 'bg-green-500' : 'bg-red-500'
         }`}
       />
@@ -130,20 +155,18 @@ function StepRow({ step, index }: { step: StepResult; index: number }) {
       {/* Step index */}
       <span className="text-gray-400 w-5 flex-shrink-0">{index}</span>
 
-      {/* Operation name */}
-      <span className="font-semibold w-24 flex-shrink-0">{step.op}</span>
+      {/* Operation label */}
+      <span className="font-semibold w-16 flex-shrink-0">{opLabel(step.op)}</span>
 
-      {/* ok / fail badge */}
-      <span
-        className={`flex-shrink-0 font-semibold ${
-          isPassed ? 'text-green-700' : 'text-red-700'
-        }`}
-      >
-        {isPassed ? 'ok' : 'fail'}
-      </span>
+      {/* Details (TX/RX data, ACK/NACK, address decode) */}
+      {details && <span className="opacity-90">{details}</span>}
 
-      {/* Extra details */}
-      {details && <span className="opacity-80">{details}</span>}
+      {/* Error message */}
+      {step.message && (
+        <span className="text-red-600 ml-auto truncate max-w-xs" title={step.message}>
+          {step.message}
+        </span>
+      )}
     </div>
   )
 }
@@ -184,40 +207,64 @@ export function ResultPanel({ result }: ResultPanelProps) {
   }, [result])
 
   return (
-    <div className="flex flex-col border-t border-gray-200 bg-white flex-shrink-0">
-      {/* Toggle bar — always visible */}
+    <aside
+      className={`flex flex-col border-l border-gray-200 bg-white flex-shrink-0 h-full transition-[width] duration-200 ${
+        isExpanded ? 'w-80' : 'w-10'
+      }`}
+    >
+      {/* Toggle bar — vertical strip when collapsed */}
       <button
         onClick={() => setIsExpanded((prev) => !prev)}
-        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors w-full text-left"
+        className={`flex items-center gap-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors ${
+          isExpanded
+            ? 'px-3 py-2 border-b border-gray-200 w-full text-left'
+            : 'flex-col justify-center w-full h-full'
+        }`}
         aria-expanded={isExpanded}
       >
         <span
           className="text-gray-400 transition-transform duration-200"
-          style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+          style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(-90deg)' }}
         >
           ▲
         </span>
-        Results
-        {result !== null && (
-          <span
-            className={`ml-2 text-xs font-semibold px-2 py-0.5 rounded ${
-              result.passed
-                ? 'bg-green-100 text-green-700'
-                : 'bg-red-100 text-red-700'
-            }`}
-          >
-            {result.passed ? 'PASS' : 'FAIL'}
-          </span>
+        {!isExpanded && (
+          <>
+            <span className="writing-vertical text-xs tracking-widest">Results</span>
+            {result !== null && (
+              <span
+                className={`w-3 h-3 rounded-full mt-2 ${
+                  result.passed ? 'bg-green-500' : 'bg-red-500'
+                }`}
+              />
+            )}
+          </>
+        )}
+        {isExpanded && (
+          <>
+            Results
+            {result !== null && (
+              <span
+                className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded ${
+                  result.passed
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-red-100 text-red-700'
+                }`}
+              >
+                {result.passed ? 'PASS' : 'FAIL'}
+              </span>
+            )}
+          </>
         )}
       </button>
 
-      {/* Collapsible body */}
+      {/* Expanded body */}
       {isExpanded && (
-        <div className="px-4 pb-4 pt-1 max-h-72 overflow-y-auto text-sm">
+        <div className="flex-1 overflow-y-auto px-3 pb-3 pt-2 text-sm">
           {result === null ? (
-            <p className="text-gray-500 italic">No results yet. Build a flow and click Run.</p>
+            <p className="text-gray-500 italic text-xs">No results yet. Build a flow and click Run.</p>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* Overall status banner */}
               <div
                 className={`flex items-center gap-2 px-3 py-2 rounded font-semibold text-sm ${
@@ -231,7 +278,7 @@ export function ResultPanel({ result }: ResultPanelProps) {
                     result.passed ? 'bg-green-500' : 'bg-red-500'
                   }`}
                 />
-                Overall: {result.passed ? 'PASS' : 'FAIL'}
+                {result.passed ? 'PASS' : 'FAIL'}
               </div>
 
               {/* Per-step results */}
@@ -243,9 +290,9 @@ export function ResultPanel({ result }: ResultPanelProps) {
                 </div>
               )}
 
-              {/* Register dump */}
-              {result.register_dump.length > 0 && (
-                <RegisterDump dump={result.register_dump} />
+              {/* EEPROM memory dump */}
+              {Object.keys(result.register_dump).length > 0 && (
+                <EepromDump dump={result.register_dump} regPointer={result.reg_pointer} />
               )}
 
               {/* Download VCD */}
@@ -256,6 +303,6 @@ export function ResultPanel({ result }: ResultPanelProps) {
           )}
         </div>
       )}
-    </div>
+    </aside>
   )
 }
