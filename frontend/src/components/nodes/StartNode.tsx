@@ -1,10 +1,12 @@
 import { Handle, Position } from '@xyflow/react'
 import type { NodeProps, Node } from '@xyflow/react'
+import { useNodeHighlight } from '../../lib/useNodeHighlight'
 
 export interface StartNodeData {
   status?: 'ok' | 'fail'
   warning?: string
   nodeTooltip?: string
+  stepIndex?: number | null
   [key: string]: unknown
 }
 
@@ -14,10 +16,22 @@ export function StartNode({ data }: NodeProps<StartNode>) {
   const status = data.status
   const warning = data.warning as string | undefined
   const nodeTooltip = data.nodeTooltip as string | undefined
+  const stepIndex = data.stepIndex as number | null | undefined
+  const { isHovered, isSelected, onMouseEnter, onMouseLeave, onClick } = useNodeHighlight(stepIndex)
+
+  const highlightRing = isSelected
+    ? 'ring-2 ring-blue-500 ring-offset-1'
+    : isHovered
+      ? 'ring-2 ring-blue-400 ring-offset-1'
+      : ''
+
   return (
     <div
       title={nodeTooltip}
-      className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-emerald-500'} bg-emerald-50 shadow-sm w-full overflow-hidden`}
+      className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-emerald-500'} bg-emerald-50 shadow-sm w-full overflow-hidden ${highlightRing}`}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onClick={onClick}
     >
       {/* Header */}
       <div className={`${warning ? 'bg-yellow-400' : 'bg-emerald-500'} text-white text-xs font-semibold px-3 py-1 rounded-t flex items-center justify-between`}>

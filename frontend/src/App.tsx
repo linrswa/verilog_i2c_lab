@@ -35,6 +35,7 @@ import {
 import { chainHasErrors } from './lib/validate'
 import { validateProtocolFlow } from './lib/protocol-validate'
 import { buildTimeToX, NODE_WIDTH as WAVEFORM_NODE_WIDTH, GAP as WAVEFORM_GAP, LAYOUT_Y as WAVEFORM_LAYOUT_Y } from './lib/waveform'
+import { HighlightContext } from './lib/highlightContext'
 
 /** Status of each step after simulation: 'ok' | 'fail', keyed by node ID. */
 type NodeStatusMap = Map<string, 'ok' | 'fail'>
@@ -55,11 +56,12 @@ const LAYOUT_Y = WAVEFORM_LAYOUT_Y
  */
 function applyHorizontalLayout(nodes: Node[]): Node[] {
   return nodes.map((node, i) => {
-    // Strip time-based width override and tooltip from post-simulation layout
+    // Strip time-based width override and tooltip from post-simulation layout,
+    // and step index (which is only valid for the most recent simulation run).
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { width: _removedWidth, ...styleWithoutWidth } = (node.style as Record<string, unknown> | undefined) ?? {}
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { nodeTooltip: _removedTooltip, ...dataWithoutTooltip } = node.data as Record<string, unknown>
+    const { nodeTooltip: _removedTooltip, stepIndex: _removedStepIndex, ...dataWithoutTooltip } = node.data as Record<string, unknown>
     return {
       ...node,
       position: { x: i * (NODE_WIDTH + GAP), y: LAYOUT_Y },
@@ -282,18 +284,26 @@ export default function App() {
   const [flowViewport, setFlowViewport] = useState<FlowViewport>({ x: 0, y: 0, zoom: 1 })
   // Ref to the canvas column container — used to measure width for time-based node layout
   const canvasColumnRef = useRef<HTMLDivElement>(null)
+  // Cross-highlighting state: which waveform step is hovered/selected
+  const [hoveredStepIndex, setHoveredStepIndex] = useState<number | null>(null)
+  const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null)
   /**
-   * Clear all node status badges by removing the `status` field from node data.
-   * Called whenever the flow is modified so stale badges don't persist.
+   * Clear all node status badges and step indices by removing the `status` and
+   * `stepIndex` fields from node data.
+   * Called whenever the flow is modified so stale badges and highlight indices
+   * don't persist across runs.
    */
   const clearNodeStatuses = useCallback(() => {
     setNodes((nds) =>
       nds.map((n) => {
         const data = { ...n.data }
         delete data.status
+        delete data.stepIndex
         return { ...n, data }
       }),
     )
+    setHoveredStepIndex(null)
+    setSelectedStepIndex(null)
   }, [])
 
   // Run protocol-level validation whenever nodes or edges change.
@@ -556,20 +566,28 @@ export default function App() {
         }
       }
 
-      // Build node time-range map by aligning result.steps with orderedNodeIds.
+      // Build node time-range map and node-to-step-index map by aligning
+      // result.steps with orderedNodeIds.
       // The backend auto-prepends a `reset` step, so skip it if present at index 0.
       // After that, result.steps has one entry per user step (including framing ops)
       // in the same order as orderedNodeIds.
       const nodeTimeRangeMap = new Map<string, [number, number]>()
+      // Maps node ID -> index in result.steps (for cross-highlighting)
+      const nodeStepIndexMap = new Map<string, number>()
       let rIdx = result.steps[0]?.op === 'reset' ? 1 : 0
       for (let i = 0; i < orderedNodeIds.length && rIdx < result.steps.length; i++) {
         const nodeId = orderedNodeIds[i]
         const resultStep = result.steps[rIdx]
+        nodeStepIndexMap.set(nodeId, rIdx)
         if (resultStep?.time_range_ps) {
           nodeTimeRangeMap.set(nodeId, resultStep.time_range_ps)
         }
         rIdx++
       }
+
+      // Reset cross-highlighting when a new simulation completes
+      setHoveredStepIndex(null)
+      setSelectedStepIndex(null)
 
       // Apply time-based layout if we have timing data and a total sim time.
       // Canvas width is measured from the canvas column container; fall back to 1200px.
@@ -582,9 +600,10 @@ export default function App() {
         setNodes((nds) =>
           nds.map((n) => {
             const timeRange = nodeTimeRangeMap.get(n.id)
+            const stepIndex = nodeStepIndexMap.get(n.id) ?? null
             const statusUpdate = { status: statusMap.get(n.id) }
             if (!timeRange) {
-              return { ...n, data: { ...n.data, ...statusUpdate } }
+              return { ...n, data: { ...n.data, ...statusUpdate, stepIndex } }
             }
             const [startPs, endPs] = timeRange
             const x = timeToX(startPs)
@@ -598,14 +617,21 @@ export default function App() {
               ...n,
               position: { x, y: LAYOUT_Y },
               style: { ...n.style, width },
-              data: { ...n.data, ...statusUpdate, nodeTooltip },
+              data: { ...n.data, ...statusUpdate, nodeTooltip, stepIndex },
             }
           }),
         )
       } else {
-        // No timing data — just write status badges
+        // No timing data — just write status badges and step indices
         setNodes((nds) =>
-          nds.map((n) => ({ ...n, data: { ...n.data, status: statusMap.get(n.id) } })),
+          nds.map((n) => ({
+            ...n,
+            data: {
+              ...n.data,
+              status: statusMap.get(n.id),
+              stepIndex: nodeStepIndexMap.get(n.id) ?? null,
+            },
+          })),
         )
       }
     } catch (err) {
@@ -616,58 +642,70 @@ export default function App() {
     }
   }
 
+  const highlightContextValue = React.useMemo(
+    () => ({
+      hoveredStepIndex,
+      selectedStepIndex,
+      setHoveredStepIndex,
+      setSelectedStepIndex,
+    }),
+    [hoveredStepIndex, selectedStepIndex],
+  )
+
   return (
-    // Full viewport column: toolbar / error banner / body / result panel
-    <div className="flex flex-col w-screen h-screen overflow-hidden bg-gray-100">
-      <Toolbar onRun={handleRun} isRunDisabled={isRunDisabled} isRunning={isRunning} onLoadTemplate={handleLoadTemplate} onClear={handleClear} />
+    <HighlightContext.Provider value={highlightContextValue}>
+      {/* Full viewport column: toolbar / error banner / body / result panel */}
+      <div className="flex flex-col w-screen h-screen overflow-hidden bg-gray-100">
+        <Toolbar onRun={handleRun} isRunDisabled={isRunDisabled} isRunning={isRunning} onLoadTemplate={handleLoadTemplate} onClear={handleClear} />
 
-      {/* Inline error banner — shown below toolbar when a run fails */}
-      {runError !== null && (
-        <div
-          role="alert"
-          className="flex items-center gap-3 px-4 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700"
-        >
-          <span className="flex-1">{runError}</span>
-          <button
-            onClick={() => setRunError(null)}
-            aria-label="Dismiss error"
-            className="text-red-400 hover:text-red-600 font-bold leading-none"
+        {/* Inline error banner — shown below toolbar when a run fails */}
+        {runError !== null && (
+          <div
+            role="alert"
+            className="flex items-center gap-3 px-4 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700"
           >
-            ✕
-          </button>
-        </div>
-      )}
+            <span className="flex-1">{runError}</span>
+            <button
+              onClick={() => setRunError(null)}
+              aria-label="Dismiss error"
+              className="text-red-400 hover:text-red-600 font-bold leading-none"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
-      {/* Main body: sidebar + canvas + result panel */}
-      <div className="flex flex-row flex-1 overflow-hidden">
-        <Sidebar onAddNode={handleAppendNode} />
+        {/* Main body: sidebar + canvas + result panel */}
+        <div className="flex flex-row flex-1 overflow-hidden">
+          <Sidebar onAddNode={handleAppendNode} />
 
-        {/* Canvas column: ReactFlow canvas on top, WaveformPanel below */}
-        <div ref={canvasColumnRef} className="flex flex-col flex-1 overflow-hidden">
-          {/* ReactFlowProvider enables useReactFlow() inside FlowCanvas */}
-          <ReactFlowProvider>
-            <FlowCanvas
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onNodeDrag={onNodeDrag}
-              onNodeDragStop={onNodeDragStop}
-              initialViewportRestored={viewportRestored}
-              onViewportRestored={() => setViewportRestored(true)}
-              onViewportChange={setFlowViewport}
+          {/* Canvas column: ReactFlow canvas on top, WaveformPanel below */}
+          <div ref={canvasColumnRef} className="flex flex-col flex-1 overflow-hidden">
+            {/* ReactFlowProvider enables useReactFlow() inside FlowCanvas */}
+            <ReactFlowProvider>
+              <FlowCanvas
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onNodeDrag={onNodeDrag}
+                onNodeDragStop={onNodeDragStop}
+                initialViewportRestored={viewportRestored}
+                onViewportRestored={() => setViewportRestored(true)}
+                onViewportChange={setFlowViewport}
+              />
+            </ReactFlowProvider>
+
+            <WaveformPanel
+              waveformId={simulationResult?.waveform_id ?? null}
+              steps={simulationResult?.steps ?? []}
+              viewport={flowViewport}
             />
-          </ReactFlowProvider>
+          </div>
 
-          <WaveformPanel
-            waveformId={simulationResult?.waveform_id ?? null}
-            steps={simulationResult?.steps ?? []}
-            viewport={flowViewport}
-          />
+          <ResultPanel result={simulationResult} />
         </div>
-
-        <ResultPanel result={simulationResult} />
       </div>
-    </div>
+    </HighlightContext.Provider>
   )
 }

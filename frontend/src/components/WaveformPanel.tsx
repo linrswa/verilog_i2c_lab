@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { getWaveformSignals } from '../lib/api'
 import type { WaveformSignalsResponse, StepResult } from '../lib/api'
 import { buildTimeToX } from '../lib/waveform'
+import { useHighlight } from '../lib/highlightContext'
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
@@ -206,28 +207,6 @@ function SignalChip({ name, isSelected, onToggle }: SignalChipProps) {
 
 // ── Step overlay color map ────────────────────────────────────────────────────
 
-/**
- * Maps a protocol step op name to a semi-transparent fill color.
- * Colors are chosen to match the node color scheme used in the canvas.
- */
-const STEP_OVERLAY_COLORS: Record<string, string> = {
-  start:          'rgba(59, 130, 246, 0.15)',   // blue  — matches StartNode
-  repeated_start: 'rgba(139, 92, 246, 0.15)',   // purple — matches RepeatedStartNode
-  send_byte:      'rgba(34, 197, 94, 0.15)',    // green — matches SendByteNode
-  recv_byte:      'rgba(249, 115, 22, 0.15)',   // orange — matches RecvByteNode
-  stop:           'rgba(239, 68, 68, 0.15)',    // red   — matches StopNode
-  reset:          'rgba(107, 114, 128, 0.15)',  // gray  — internal reset step
-}
-
-const STEP_OVERLAY_STROKE_COLORS: Record<string, string> = {
-  start:          'rgba(59, 130, 246, 0.4)',
-  repeated_start: 'rgba(139, 92, 246, 0.4)',
-  send_byte:      'rgba(34, 197, 94, 0.4)',
-  recv_byte:      'rgba(249, 115, 22, 0.4)',
-  stop:           'rgba(239, 68, 68, 0.4)',
-  reset:          'rgba(107, 114, 128, 0.4)',
-}
-
 const STEP_LABEL_COLORS: Record<string, string> = {
   start:          '#1d4ed8',
   repeated_start: '#6d28d9',
@@ -235,14 +214,6 @@ const STEP_LABEL_COLORS: Record<string, string> = {
   recv_byte:      '#c2410c',
   stop:           '#b91c1c',
   reset:          '#374151',
-}
-
-function stepFillColor(op: string): string {
-  return STEP_OVERLAY_COLORS[op] ?? 'rgba(107, 114, 128, 0.12)'
-}
-
-function stepStrokeColor(op: string): string {
-  return STEP_OVERLAY_STROKE_COLORS[op] ?? 'rgba(107, 114, 128, 0.35)'
 }
 
 function stepLabelColor(op: string): string {
@@ -272,11 +243,53 @@ interface StepOverlaysProps {
 }
 
 /**
+ * Returns a fill color with increased opacity for highlighted overlays.
+ * Base opacity for normal overlays is ~0.15; hovered is ~0.30; selected is ~0.40.
+ */
+function highlightedFillColor(op: string, mode: 'normal' | 'hovered' | 'selected'): string {
+  // Base RGBA colors keyed by op — these are the solid colors without alpha
+  const baseColors: Record<string, [number, number, number]> = {
+    start:          [59, 130, 246],
+    repeated_start: [139, 92, 246],
+    send_byte:      [34, 197, 94],
+    recv_byte:      [249, 115, 22],
+    stop:           [239, 68, 68],
+    reset:          [107, 114, 128],
+  }
+  const [r, g, b] = baseColors[op] ?? [107, 114, 128]
+  const alpha = mode === 'selected' ? 0.40 : mode === 'hovered' ? 0.30 : 0.15
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/**
+ * Returns a stroke color with increased opacity for highlighted overlays.
+ */
+function highlightedStrokeColor(op: string, mode: 'normal' | 'hovered' | 'selected'): string {
+  const baseColors: Record<string, [number, number, number]> = {
+    start:          [59, 130, 246],
+    repeated_start: [139, 92, 246],
+    send_byte:      [34, 197, 94],
+    recv_byte:      [249, 115, 22],
+    stop:           [239, 68, 68],
+    reset:          [107, 114, 128],
+  }
+  const [r, g, b] = baseColors[op] ?? [107, 114, 128]
+  const alpha = mode === 'selected' ? 0.9 : mode === 'hovered' ? 0.7 : 0.4
+  const width = mode !== 'normal' ? 1.5 : 0.8
+  return `rgba(${r}, ${g}, ${b}, ${alpha})|${width}`
+}
+
+/**
  * Renders semi-transparent colored rectangles and centered labels for each
  * protocol step that has a `time_range_ps` value.  These overlays sit behind
  * the signal path elements so the waveform traces remain readable.
+ *
+ * Overlays respond to hover and click events to drive cross-highlighting with
+ * the canvas node components.
  */
 function StepOverlays({ steps, timeToX, svgHeight, svgWidth }: StepOverlaysProps) {
+  const { hoveredStepIndex, selectedStepIndex, setHoveredStepIndex, setSelectedStepIndex } = useHighlight()
+
   const overlays = steps.filter((s) => s.time_range_ps != null)
 
   if (overlays.length === 0) return null
@@ -284,6 +297,11 @@ function StepOverlays({ steps, timeToX, svgHeight, svgWidth }: StepOverlaysProps
   return (
     <g data-testid="step-overlays">
       {overlays.map((step, idx) => {
+        // `idx` here is the index within overlays[], but we need the index in steps[]
+        // to match the node's stepIndex (which is steps[rIdx] after skipping reset).
+        // overlays is filtered from steps, so we find the true step index.
+        const stepIdx = steps.indexOf(step)
+
         const [startPs, endPs] = step.time_range_ps!
         const x1 = timeToX(startPs)
         const x2 = timeToX(endPs)
@@ -298,16 +316,30 @@ function StepOverlays({ steps, timeToX, svgHeight, svgWidth }: StepOverlaysProps
         const labelX = clampedX + clampedWidth / 2
         const labelY = 9
 
+        // Determine highlight mode for this overlay
+        const isSelected = selectedStepIndex === stepIdx
+        const isHovered = !isSelected && hoveredStepIndex === stepIdx
+        const mode = isSelected ? 'selected' : isHovered ? 'hovered' : 'normal'
+        const strokeParts = highlightedStrokeColor(step.op, mode).split('|')
+        const strokeColor = strokeParts[0]
+        const strokeWidth = parseFloat(strokeParts[1] ?? '0.8')
+
         return (
-          <g key={`${step.op}-${idx}`}>
+          <g
+            key={`${step.op}-${idx}`}
+            style={{ cursor: 'pointer' }}
+            onMouseEnter={() => setHoveredStepIndex(stepIdx)}
+            onMouseLeave={() => setHoveredStepIndex(null)}
+            onClick={() => setSelectedStepIndex(isSelected ? null : stepIdx)}
+          >
             <rect
               x={clampedX}
               y={0}
               width={clampedWidth}
               height={svgHeight}
-              fill={stepFillColor(step.op)}
-              stroke={stepStrokeColor(step.op)}
-              strokeWidth={0.8}
+              fill={highlightedFillColor(step.op, mode)}
+              stroke={strokeColor}
+              strokeWidth={strokeWidth}
             />
             <text
               x={labelX}
@@ -318,6 +350,7 @@ function StepOverlays({ steps, timeToX, svgHeight, svgWidth }: StepOverlaysProps
               fontFamily="monospace"
               fontWeight="600"
               fill={stepLabelColor(step.op)}
+              style={{ pointerEvents: 'none', userSelect: 'none' }}
             >
               {stepLabel(step.op)}
             </text>
