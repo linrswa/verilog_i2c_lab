@@ -71,6 +71,10 @@ function buildDefaultData(type: string): Record<string, unknown> {
     case 'i2c_stop':
     case 'repeated_start':
       return {}
+    case 'send_byte':
+      return { data: '0xA0' }  // default: addr 0x50 + write
+    case 'recv_byte':
+      return { ack: true }
     default:
       return {}
   }
@@ -82,12 +86,15 @@ function buildDefaultData(type: string): Record<string, unknown> {
  */
 function opToNodeType(op: string): string {
   switch (op) {
-    case 'reset':       return 'reset'
-    case 'write_bytes': return 'write'
-    case 'read_bytes':  return 'read'
-    case 'scan':        return 'scan'
-    case 'delay':       return 'delay'
-    default:            return 'reset'
+    case 'reset':           return 'reset'
+    case 'write_bytes':     return 'write'
+    case 'read_bytes':      return 'read'
+    case 'scan':            return 'scan'
+    case 'delay':           return 'delay'
+    case 'start':           return 'i2c_start'
+    case 'stop':            return 'i2c_stop'
+    case 'repeated_start':  return 'repeated_start'
+    default:                return 'reset'
   }
 }
 
@@ -121,6 +128,11 @@ function stepToNodeData(step: StepPayload): Record<string, unknown> {
       return {
         cycles: String(step.cycles ?? 100),
       }
+    case 'start':
+    case 'stop':
+    case 'repeated_start':
+      return {}
+    // US-008: send_byte and recv_byte cases will be added here
     default:
       return {}
   }

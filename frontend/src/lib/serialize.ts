@@ -32,11 +32,22 @@ interface DelayData {
   [key: string]: unknown
 }
 
+// Protocol-level node data shapes (Phase 4 — US-008 will populate these)
+export interface SendByteData {
+  data: string  // hex string e.g. "0xA0"
+  [key: string]: unknown
+}
+
+export interface RecvByteData {
+  ack: boolean
+  [key: string]: unknown
+}
+
 // A minimal Node shape — we only need id, type, and data.
 export interface FlowNode {
   id: string
   type?: string
-  data: ResetData | WriteData | ReadData | ScanData | DelayData
+  data: ResetData | WriteData | ReadData | ScanData | DelayData | SendByteData | RecvByteData
 }
 
 // ─── Backend step payloads ────────────────────────────────────────────────────
@@ -71,7 +82,41 @@ export interface DelayStep {
   cycles: number
 }
 
-export type StepPayload = ResetStep | WriteStep | ReadStep | ScanStep | DelayStep
+// ─── Protocol-level step payloads (Phase 4) ──────────────────────────────────
+
+export interface StartStep {
+  op: 'start'
+}
+
+export interface StopStep {
+  op: 'stop'
+}
+
+export interface RepeatedStartStep {
+  op: 'repeated_start'
+}
+
+export interface SendByteStep {
+  op: 'send_byte'
+  data: string  // hex string e.g. "0xA0"
+}
+
+export interface RecvByteStep {
+  op: 'recv_byte'
+  ack: boolean
+}
+
+export type StepPayload =
+  | ResetStep
+  | WriteStep
+  | ReadStep
+  | ScanStep
+  | DelayStep
+  | StartStep
+  | StopStep
+  | RepeatedStartStep
+  | SendByteStep
+  | RecvByteStep
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -200,6 +245,20 @@ function mapNodeToStep(node: FlowNode): StepPayload | null {
         cycles: parseInt(d.cycles ?? '100', 10) || 100,
       }
     }
+
+    // ── Protocol-level nodes (Phase 4) ─────────────────────────────────────
+    case 'i2c_start':
+      return { op: 'start' }
+
+    case 'i2c_stop':
+      return { op: 'stop' }
+
+    case 'repeated_start':
+      return { op: 'repeated_start' }
+
+    // US-008: SendByte and RecvByte cases will be added here by that story
+    // case 'send_byte': ...
+    // case 'recv_byte': ...
 
     default:
       return null
