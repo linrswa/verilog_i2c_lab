@@ -27,7 +27,7 @@ export function StopNode({ data }: NodeProps<StopNode>) {
           <span aria-label="passed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-green-500 text-white text-[10px] leading-none font-bold">✓</span>
         )}
         {status === 'fail' && (
-          <span aria-label="failed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-red-300 text-white text-[10px] leading-none font-bold">✕</span>
+          <span aria-label="failed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] leading-none font-bold">✕</span>
         )}
       </div>
 
