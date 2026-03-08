@@ -1,0 +1,16 @@
+{
+  "name": "Repeated Start Read",
+  "description": "Write register pointer then read via repeated start",
+  "steps": [
+    {"op": "reset"},
+    {"op": "write_bytes", "addr": "0x50", "reg": "0x00", "data": ["0xDE", "0xAD"]},
+    {"op": "start"},
+    {"op": "send_byte", "data": "0xA0"},
+    {"op": "send_byte", "data": "0x00"},
+    {"op": "repeated_start"},
+    {"op": "send_byte", "data": "0xA1"},
+    {"op": "recv_byte", "ack": true},
+    {"op": "recv_byte", "ack": false},
+    {"op": "stop"}
+  ]
+}

@@ -287,3 +287,133 @@ async def test_post_run_valid_protocol_sequence_proceeds(
     # Should not be rejected by the validator; simulation mock returns passed=True.
     assert resp.status_code == 200
     assert resp.json()["passed"] is True
+
+
+# ---------------------------------------------------------------------------
+# POST /api/run — US-006 integration tests
+# ---------------------------------------------------------------------------
+
+# Fake result for protocol-level sequence steps.
+_PROTOCOL_FAKE_RESULT: dict[str, Any] = {
+    "passed": True,
+    "steps": [
+        {"op": "reset", "passed": True},
+        {"op": "start", "passed": True},
+        {"op": "send_byte", "passed": True, "data": "0xA0"},
+        {"op": "send_byte", "passed": True, "data": "0x00"},
+        {"op": "repeated_start", "passed": True},
+        {"op": "send_byte", "passed": True, "data": "0xA1"},
+        {"op": "recv_byte", "passed": True, "data": "0xDE"},
+        {"op": "recv_byte", "passed": True, "data": "0xAD"},
+        {"op": "stop", "passed": True},
+    ],
+    "register_dump": {"0x00": "0xDE", "0x01": "0xAD"},
+    "vcd_path": None,
+}
+
+# The repeated-start sequence: write register pointer → repeated start → read.
+_PROTOCOL_ONLY_STEPS = [
+    {"op": "reset"},
+    {"op": "start"},
+    {"op": "send_byte", "data": "0xA0"},
+    {"op": "send_byte", "data": "0x00"},
+    {"op": "repeated_start"},
+    {"op": "send_byte", "data": "0xA1"},
+    {"op": "recv_byte", "ack": True},
+    {"op": "recv_byte", "ack": False},
+    {"op": "stop"},
+]
+
+# Mixed sequence: legacy write_bytes followed by protocol-level repeated-start read.
+_MIXED_STEPS = [
+    {"op": "reset"},
+    {"op": "write_bytes", "addr": "0x50", "reg": "0x00", "data": ["0xDE", "0xAD"]},
+    {"op": "start"},
+    {"op": "send_byte", "data": "0xA0"},
+    {"op": "send_byte", "data": "0x00"},
+    {"op": "repeated_start"},
+    {"op": "send_byte", "data": "0xA1"},
+    {"op": "recv_byte", "ack": True},
+    {"op": "recv_byte", "ack": False},
+    {"op": "stop"},
+]
+
+
+@pytest.mark.anyio
+async def test_post_run_protocol_only_steps_returns_passed_true(
+    client: AsyncClient,
+) -> None:
+    """POST /api/run with a protocol-level repeated-start sequence returns passed: true."""
+    mock_create = _make_mock_subprocess(0, _PROTOCOL_FAKE_RESULT)
+
+    with patch("asyncio.create_subprocess_exec", new=mock_create):
+        resp = await client.post("/api/run", json={"steps": _PROTOCOL_ONLY_STEPS})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["passed"] is True
+    assert "waveform_id" in body
+    assert isinstance(body["steps"], list)
+    assert isinstance(body["register_dump"], dict)
+
+
+@pytest.mark.anyio
+async def test_post_run_mixed_protocol_and_legacy_steps_returns_passed_true(
+    client: AsyncClient,
+) -> None:
+    """POST /api/run with mixed legacy + protocol ops in one sequence returns passed: true."""
+    mock_create = _make_mock_subprocess(0, _PROTOCOL_FAKE_RESULT)
+
+    with patch("asyncio.create_subprocess_exec", new=mock_create):
+        resp = await client.post("/api/run", json={"steps": _MIXED_STEPS})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["passed"] is True
+    assert "waveform_id" in body
+
+
+@pytest.mark.anyio
+async def test_post_run_invalid_protocol_sequence_recv_in_write_returns_422_with_details(
+    client: AsyncClient,
+) -> None:
+    """POST /api/run with recv_byte in write mode returns 422 with validation_errors."""
+    invalid_steps = [
+        {"op": "start"},
+        {"op": "send_byte", "data": "0xA0"},  # write mode (LSB=0)
+        {"op": "recv_byte", "ack": True},       # invalid: recv in write mode
+        {"op": "stop"},
+    ]
+    resp = await client.post("/api/run", json={"steps": invalid_steps})
+
+    assert resp.status_code == 422
+    body = resp.json()
+    detail = body.get("detail", {})
+    assert "validation_errors" in detail, f"Unexpected detail shape: {detail}"
+    errors = detail["validation_errors"]
+    assert isinstance(errors, list)
+    assert len(errors) > 0
+    # At least one error should mention recv_byte or write mode.
+    combined = " ".join(errors).lower()
+    assert "recv_byte" in combined or "write mode" in combined or "lsb=0" in combined
+
+
+@pytest.mark.anyio
+async def test_get_template_repeated_start_read_returns_valid_content(
+    client: AsyncClient,
+) -> None:
+    """GET /api/templates/repeated_start_read returns the new template with correct steps."""
+    resp = await client.get("/api/templates/repeated_start_read")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "steps" in body
+    steps = body["steps"]
+    assert isinstance(steps, list)
+    assert len(steps) > 0
+    # Verify the template contains the expected protocol ops.
+    ops = [s["op"] for s in steps]
+    assert "start" in ops
+    assert "repeated_start" in ops
+    assert "send_byte" in ops
+    assert "recv_byte" in ops
+    assert "stop" in ops
