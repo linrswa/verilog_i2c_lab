@@ -26,6 +26,8 @@ import {
   StartNode,
   StopNode,
   RepeatedStartNode,
+  SendByteNode,
+  RecvByteNode,
 } from './components/nodes'
 import { serializeFlowWithOrder } from './lib/serialize'
 import type { StepPayload } from './lib/serialize'
@@ -51,6 +53,8 @@ const nodeTypes: NodeTypes = {
   i2c_start: StartNode,
   i2c_stop: StopNode,
   repeated_start: RepeatedStartNode,
+  send_byte: SendByteNode,
+  recv_byte: RecvByteNode,
 }
 
 // Default data for each node type per acceptance criteria:
