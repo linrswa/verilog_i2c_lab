@@ -6,12 +6,10 @@ import {
   Background,
   Controls,
   applyNodeChanges,
-  applyEdgeChanges,
-  addEdge,
   MarkerType,
   useReactFlow,
 } from '@xyflow/react'
-import type { Node, Edge, NodeTypes, NodeChange, EdgeChange, Connection } from '@xyflow/react'
+import type { Node, Edge, NodeTypes, NodeChange, EdgeChange } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
 import { Toolbar } from './components/Toolbar'
@@ -38,6 +36,39 @@ import { validateProtocolFlow } from './lib/protocol-validate'
 
 /** Status of each step after simulation: 'ok' | 'fail', keyed by node ID. */
 type NodeStatusMap = Map<string, 'ok' | 'fail'>
+
+// ── Layout constants ──────────────────────────────────────────────────────────
+const NODE_WIDTH = 160
+const GAP = 40
+const LAYOUT_Y = 200
+
+/**
+ * Apply horizontal auto-layout: all nodes share the same y-coordinate and
+ * are spaced evenly along the x-axis.  Returns a new nodes array — does not
+ * mutate the input.
+ */
+function applyHorizontalLayout(nodes: Node[]): Node[] {
+  return nodes.map((node, i) => ({
+    ...node,
+    position: { x: i * (NODE_WIDTH + GAP), y: LAYOUT_Y },
+  }))
+}
+
+/**
+ * Build auto-generated smoothstep edges between every consecutive pair of nodes.
+ * Existing custom edge attributes (markers, etc.) are not preserved — this
+ * produces a canonical edge list from the ordered node array.
+ */
+function buildAutoEdges(nodes: Node[]): Edge[] {
+  return nodes.slice(0, -1).map((node, i) => ({
+    id: `e-${node.id}-${nodes[i + 1].id}`,
+    source: node.id,
+    target: nodes[i + 1].id,
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed },
+  }))
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Register all custom node types — passed to <ReactFlow nodeTypes={...}>
 const nodeTypes: NodeTypes = {
@@ -100,23 +131,18 @@ function stepToNodeData(step: StepPayload): Record<string, unknown> {
 
 /**
  * Convert a template's steps array into React Flow nodes and edges.
- * Nodes are positioned in a vertical chain, spaced 120 px apart at x=250.
+ * Nodes are arranged using the horizontal auto-layout.
  */
 function templateToNodesAndEdges(template: TemplateDetail): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = template.steps.map((step, i) => ({
+  const rawNodes: Node[] = template.steps.map((step, i) => ({
     id: `template-${i}-${Date.now()}`,
     type: opToNodeType(step.op),
-    position: { x: 250, y: i * 120 },
+    position: { x: 0, y: 0 },
     data: stepToNodeData(step),
   }))
 
-  const edges: Edge[] = nodes.slice(0, -1).map((node, i) => ({
-    id: `template-edge-${i}-${Date.now()}`,
-    source: node.id,
-    target: nodes[i + 1].id,
-    type: 'smoothstep',
-    markerEnd: { type: MarkerType.ArrowClosed },
-  }))
+  const nodes = applyHorizontalLayout(rawNodes)
+  const edges = buildAutoEdges(nodes)
 
   return { nodes, edges }
 }
@@ -154,7 +180,7 @@ function FlowCanvas({
   edges,
   onNodesChange,
   onEdgesChange,
-  onConnect,
+  onAppendNode,
   initialViewportRestored,
   onViewportRestored,
 }: {
@@ -162,11 +188,11 @@ function FlowCanvas({
   edges: Edge[]
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
-  onConnect: (connection: Connection) => void
+  onAppendNode: (nodeType: string) => void
   initialViewportRestored: boolean
   onViewportRestored: () => void
 }) {
-  const { screenToFlowPosition, setNodes, setViewport, getViewport } = useReactFlow()
+  const { setViewport, getViewport } = useReactFlow()
 
   // Restore saved viewport once — on first mount, after ReactFlow has initialised
   useEffect(() => {
@@ -194,22 +220,9 @@ function FlowCanvas({
       const nodeType = event.dataTransfer.getData('application/reactflow-node-type')
       if (!nodeType) return
 
-      // Convert screen coordinates to flow canvas coordinates
-      const position = screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      })
-
-      const newNode: Node = {
-        id: `${nodeType}-${Date.now()}`,
-        type: nodeType,
-        position,
-        data: buildDefaultData(nodeType),
-      }
-
-      setNodes((existingNodes) => [...existingNodes, newNode])
+      onAppendNode(nodeType)
     },
-    [screenToFlowPosition, setNodes],
+    [onAppendNode],
   )
 
   return (
@@ -224,9 +237,10 @@ function FlowCanvas({
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
         defaultEdgeOptions={defaultEdgeOptions}
         deleteKeyCode={['Delete', 'Backspace']}
+        nodesConnectable={false}
+        nodesDraggable={false}
         fitView={!loadPersistedFlow()}
       >
         <Background />
@@ -237,9 +251,17 @@ function FlowCanvas({
 }
 
 export default function App() {
-  // Initialise nodes/edges from localStorage on first mount only (lazy initializer)
-  const [nodes, setNodes] = useState<Node[]>(() => loadPersistedFlow()?.nodes ?? [])
-  const [edges, setEdges] = useState<Edge[]>(() => loadPersistedFlow()?.edges ?? [])
+  // Initialise nodes/edges from localStorage on first mount only (lazy initializer).
+  // Re-apply horizontal layout on load so saved positions are normalised.
+  const [nodes, setNodes] = useState<Node[]>(() => {
+    const saved = loadPersistedFlow()?.nodes ?? []
+    return applyHorizontalLayout(saved)
+  })
+  const [edges, setEdges] = useState<Edge[]>(() => {
+    const saved = loadPersistedFlow()?.nodes ?? []
+    const laid = applyHorizontalLayout(saved)
+    return buildAutoEdges(laid)
+  })
   const [isRunning, setIsRunning] = useState(false)
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
@@ -283,37 +305,53 @@ export default function App() {
     )
   }, [nodes, edges])
 
+  /**
+   * Handle node changes (select, remove, dimension updates, etc.).
+   * After applying changes, re-apply horizontal layout and rebuild auto-edges
+   * so that deleting a node re-indexes the remaining sequence correctly.
+   */
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       clearNodeStatuses()
-      setNodes((nds) => applyNodeChanges(changes, nds))
+      setNodes((nds) => {
+        const updated = applyNodeChanges(changes, nds)
+        return applyHorizontalLayout(updated)
+      })
+      // Rebuild edges whenever node list may have changed (e.g. deletion)
+      const hasRemoval = changes.some((c) => c.type === 'remove')
+      if (hasRemoval) {
+        setNodes((nds) => {
+          setEdges(buildAutoEdges(nds))
+          return nds
+        })
+      }
     },
     [clearNodeStatuses],
   )
 
-  const onEdgesChange = useCallback(
-    (changes: EdgeChange[]) => {
-      clearNodeStatuses()
-      setEdges((eds) => applyEdgeChanges(changes, eds))
-    },
-    [clearNodeStatuses],
-  )
+  // Edges are fully managed by auto-layout — ignore external edge change events.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const onEdgesChange = useCallback((_changes: EdgeChange[]) => {
+    // no-op: edges are derived from node order via buildAutoEdges
+  }, [])
 
-  // Enforce single outgoing edge per source handle and single incoming edge per target handle.
-  // If a conflicting edge exists it is replaced so the canvas always stays a simple linear chain.
-  const onConnect = useCallback(
-    (connection: Connection) => {
+  /**
+   * Append a new node at the end of the sequence with the correct horizontal
+   * position, then rebuild edges.
+   */
+  const handleAppendNode = useCallback(
+    (nodeType: string) => {
       clearNodeStatuses()
-      setEdges((eds) => {
-        // Remove any existing edge that originates from the same source handle
-        const withoutSourceEdge = eds.filter(
-          (e) => !(e.source === connection.source && e.sourceHandle === connection.sourceHandle),
-        )
-        // Remove any existing edge that terminates at the same target handle
-        const withoutConflict = withoutSourceEdge.filter(
-          (e) => !(e.target === connection.target && e.targetHandle === connection.targetHandle),
-        )
-        return addEdge(connection, withoutConflict)
+      setNodes((existingNodes) => {
+        const newNode: Node = {
+          id: `${nodeType}-${Date.now()}`,
+          type: nodeType,
+          position: { x: existingNodes.length * (NODE_WIDTH + GAP), y: LAYOUT_Y },
+          data: buildDefaultData(nodeType),
+        }
+        const updated = [...existingNodes, newNode]
+        setEdges(buildAutoEdges(updated))
+        return updated
       })
     },
     [clearNodeStatuses],
@@ -433,7 +471,7 @@ export default function App() {
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
+            onAppendNode={handleAppendNode}
             initialViewportRestored={viewportRestored}
             onViewportRestored={() => setViewportRestored(true)}
           />
