@@ -25,8 +25,9 @@ import {
   DelayNode,
 } from './components/nodes'
 import { serializeFlow } from './lib/serialize'
-import { runSimulation } from './lib/api'
-import type { SimulationResult } from './lib/api'
+import { runSimulation, getTemplate } from './lib/api'
+import type { SimulationResult, TemplateDetail } from './lib/api'
+import type { StepPayload } from './lib/serialize'
 
 // Register all custom node types — passed to <ReactFlow nodeTypes={...}>
 const nodeTypes: NodeTypes = {
@@ -54,6 +55,79 @@ function buildDefaultData(type: string): Record<string, unknown> {
     default:
       return {}
   }
+}
+
+/**
+ * Map a backend op name to the React Flow node type used by the canvas.
+ * Mirrors the op->type table that serialize.ts does in the forward direction.
+ */
+function opToNodeType(op: string): string {
+  switch (op) {
+    case 'reset':       return 'reset'
+    case 'write_bytes': return 'write'
+    case 'read_bytes':  return 'read'
+    case 'scan':        return 'scan'
+    case 'delay':       return 'delay'
+    default:            return 'reset'
+  }
+}
+
+/**
+ * Build node data from a backend step payload.
+ * Fields are converted back to the string representation expected by the node forms.
+ */
+function stepToNodeData(step: StepPayload): Record<string, unknown> {
+  switch (step.op) {
+    case 'reset':
+      return {}
+    case 'write_bytes':
+      return {
+        address: step.addr ?? '0x50',
+        register: step.reg ?? '0x00',
+        data: (step.data ?? []).join(', '),
+      }
+    case 'read_bytes':
+      return {
+        address: step.addr ?? '0x50',
+        register: step.reg ?? '0x00',
+        n: String(step.n ?? 1),
+        expect: (step.expect ?? []).join(', '),
+      }
+    case 'scan':
+      return {
+        address: step.addr ?? '0x50',
+        expect: step.expect !== undefined ? String(step.expect) : '',
+      }
+    case 'delay':
+      return {
+        cycles: String(step.cycles ?? 100),
+      }
+    default:
+      return {}
+  }
+}
+
+/**
+ * Convert a template's steps array into React Flow nodes and edges.
+ * Nodes are positioned in a vertical chain, spaced 120 px apart at x=250.
+ */
+function templateToNodesAndEdges(template: TemplateDetail): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = template.steps.map((step, i) => ({
+    id: `template-${i}-${Date.now()}`,
+    type: opToNodeType(step.op),
+    position: { x: 250, y: i * 120 },
+    data: stepToNodeData(step),
+  }))
+
+  const edges: Edge[] = nodes.slice(0, -1).map((node, i) => ({
+    id: `template-edge-${i}-${Date.now()}`,
+    source: node.id,
+    target: nodes[i + 1].id,
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed },
+  }))
+
+  return { nodes, edges }
 }
 
 // Edges render as smoothstep curves with closed arrowhead markers
@@ -180,6 +254,26 @@ export default function App() {
   // Run button is enabled only when the canvas has at least one connected chain
   const isRunDisabled = !hasConnectedChain(edges) || isRunning
 
+  async function handleLoadTemplate(templateId: string) {
+    // Guard: ask for confirmation if there is already content on the canvas
+    if ((nodes.length > 0 || edges.length > 0) && !window.confirm('Replace current flow?')) {
+      return
+    }
+
+    try {
+      const template = await getTemplate(templateId)
+      const { nodes: newNodes, edges: newEdges } = templateToNodesAndEdges(template)
+      setNodes(newNodes)
+      setEdges(newEdges)
+      // Clear any stale results from a previous run
+      setSimulationResult(null)
+      setRunError(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load template'
+      setRunError(message)
+    }
+  }
+
   async function handleRun() {
     if (isRunDisabled) return
 
@@ -201,7 +295,7 @@ export default function App() {
   return (
     // Full viewport column: toolbar / error banner / body / result panel
     <div className="flex flex-col w-screen h-screen overflow-hidden bg-gray-100">
-      <Toolbar onRun={handleRun} isRunDisabled={isRunDisabled} isRunning={isRunning} />
+      <Toolbar onRun={handleRun} isRunDisabled={isRunDisabled} isRunning={isRunning} onLoadTemplate={handleLoadTemplate} />
 
       {/* Inline error banner — shown below toolbar when a run fails */}
       {runError !== null && (
