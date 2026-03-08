@@ -79,6 +79,7 @@ class TxnResult:
     bytes_written: int = 0
     start_time_ps: int | None = None
     end_time_ps: int | None = None
+    byte_end_times_ps: list[int] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

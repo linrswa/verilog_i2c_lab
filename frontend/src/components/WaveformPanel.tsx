@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getWaveformSignals } from '../lib/api'
-import type { WaveformSignalsResponse, StepResult } from '../lib/api'
+import type { WaveformSignalsResponse } from '../lib/api'
 import { buildTimeToX } from '../lib/waveform'
-import { useHighlight } from '../lib/highlightContext'
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
@@ -36,9 +35,9 @@ function buildSignalPath(
   const yMid = rowTop + ROW_HEIGHT / 2
 
   function valueToY(value: string): number {
-    if (value === '1') return yHigh
+    if (value === '1' || value === 'z' || value === 'Z') return yHigh
     if (value === '0') return yLow
-    return yMid
+    return yMid // 'x' only
   }
 
   const parts: string[] = []
@@ -75,7 +74,7 @@ function SignalRowContent({ changes, endTimePs, timeToX, rowIndex, svgWidth }: {
   return (
     <g>
       <line
-        x1={LABEL_WIDTH}
+        x1={0}
         y1={rowTop + ROW_HEIGHT}
         x2={svgWidth}
         y2={rowTop + ROW_HEIGHT}
@@ -334,153 +333,19 @@ function SignalPicker({ available, selected, onAdd, onClose, anchorRef }: Signal
   )
 }
 
-// ── Step overlay color map ────────────────────────────────────────────────────
-
-const STEP_LABEL_COLORS: Record<string, string> = {
-  start:          '#1d4ed8',
-  repeated_start: '#6d28d9',
-  send_byte:      '#15803d',
-  recv_byte:      '#c2410c',
-  stop:           '#b91c1c',
-  reset:          '#374151',
-}
-
-function stepLabelColor(op: string): string {
-  return STEP_LABEL_COLORS[op] ?? '#374151'
-}
-
-function stepLabel(op: string): string {
-  switch (op) {
-    case 'start':          return 'START'
-    case 'repeated_start': return 'R-START'
-    case 'send_byte':      return 'SEND'
-    case 'recv_byte':      return 'RECV'
-    case 'stop':           return 'STOP'
-    case 'reset':          return 'RST'
-    default:               return op.toUpperCase()
-  }
-}
-
-// ── Step overlays ───────────────────────────────────────────────────────────
-
-interface StepOverlaysProps {
-  steps: StepResult[]
-  timeToX: (t: number) => number
-  svgHeight: number
-  svgWidth: number
-}
-
-function highlightedFillColor(op: string, mode: 'normal' | 'hovered' | 'selected'): string {
-  const baseColors: Record<string, [number, number, number]> = {
-    start:          [59, 130, 246],
-    repeated_start: [139, 92, 246],
-    send_byte:      [34, 197, 94],
-    recv_byte:      [249, 115, 22],
-    stop:           [239, 68, 68],
-    reset:          [107, 114, 128],
-  }
-  const [r, g, b] = baseColors[op] ?? [107, 114, 128]
-  const alpha = mode === 'selected' ? 0.40 : mode === 'hovered' ? 0.30 : 0.15
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
-
-function highlightedStrokeColor(op: string, mode: 'normal' | 'hovered' | 'selected'): string {
-  const baseColors: Record<string, [number, number, number]> = {
-    start:          [59, 130, 246],
-    repeated_start: [139, 92, 246],
-    send_byte:      [34, 197, 94],
-    recv_byte:      [249, 115, 22],
-    stop:           [239, 68, 68],
-    reset:          [107, 114, 128],
-  }
-  const [r, g, b] = baseColors[op] ?? [107, 114, 128]
-  const alpha = mode === 'selected' ? 0.9 : mode === 'hovered' ? 0.7 : 0.4
-  const width = mode !== 'normal' ? 1.5 : 0.8
-  return `rgba(${r}, ${g}, ${b}, ${alpha})|${width}`
-}
-
-function StepOverlays({ steps, timeToX, svgHeight, svgWidth }: StepOverlaysProps) {
-  const { hoveredStepIndex, selectedStepIndex, setHoveredStepIndex, setSelectedStepIndex } = useHighlight()
-
-  const overlays = steps.filter((s) => s.time_range_ps != null)
-  if (overlays.length === 0) return null
-
-  return (
-    <g data-testid="step-overlays">
-      {overlays.map((step, idx) => {
-        const stepIdx = steps.indexOf(step)
-        const [startPs, endPs] = step.time_range_ps!
-        const x1 = timeToX(startPs)
-        const x2 = timeToX(endPs)
-        const width = Math.max(x2 - x1, 1)
-        const clampedX = Math.max(x1, 0)
-        const clampedWidth = Math.min(width, svgWidth - clampedX)
-        if (clampedWidth <= 0) return null
-
-        const labelX = clampedX + clampedWidth / 2
-        const labelY = 9
-        const isSelected = selectedStepIndex === stepIdx
-        const isHovered = !isSelected && hoveredStepIndex === stepIdx
-        const mode = isSelected ? 'selected' : isHovered ? 'hovered' : 'normal'
-        const strokeParts = highlightedStrokeColor(step.op, mode).split('|')
-        const strokeColor = strokeParts[0]
-        const sw = parseFloat(strokeParts[1] ?? '0.8')
-
-        return (
-          <g
-            key={`${step.op}-${idx}`}
-            style={{ cursor: 'pointer' }}
-            onMouseEnter={() => setHoveredStepIndex(stepIdx)}
-            onMouseLeave={() => setHoveredStepIndex(null)}
-            onClick={() => setSelectedStepIndex(isSelected ? null : stepIdx)}
-          >
-            <rect
-              x={clampedX} y={0} width={clampedWidth} height={svgHeight}
-              fill={highlightedFillColor(step.op, mode)}
-              stroke={strokeColor} strokeWidth={sw}
-            />
-            <text
-              x={labelX} y={labelY}
-              textAnchor="middle" dominantBaseline="hanging"
-              fontSize={8} fontFamily="monospace" fontWeight="600"
-              fill={stepLabelColor(step.op)}
-              style={{ pointerEvents: 'none', userSelect: 'none' }}
-            >
-              {stepLabel(step.op)}
-            </text>
-          </g>
-        )
-      })}
-    </g>
-  )
-}
-
-// ── Viewport type ─────────────────────────────────────────────────────────────
-
-export interface FlowViewport {
-  x: number
-  y: number
-  zoom: number
-}
-
 // ── WaveformPanel ─────────────────────────────────────────────────────────────
 
 interface WaveformPanelProps {
   waveformId: string | null
-  steps?: StepResult[]
-  viewport?: FlowViewport
   panelHeight?: number
 }
 
-const DEFAULT_VIEWPORT: FlowViewport = { x: 0, y: 0, zoom: 1 }
-
-export function WaveformPanel({ waveformId, steps = [], viewport = DEFAULT_VIEWPORT, panelHeight = DEFAULT_PANEL_HEIGHT }: WaveformPanelProps) {
+export function WaveformPanel({ waveformId, panelHeight = DEFAULT_PANEL_HEIGHT }: WaveformPanelProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [waveformData, setWaveformData] = useState<WaveformSignalsResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [containerWidth, setContainerWidth] = useState(800)
 
   const [availableSignals, setAvailableSignals] = useState<string[]>([])
   const [selectedSignals, setSelectedSignals] = useState<string[]>(DEFAULT_SIGNALS)
@@ -489,6 +354,64 @@ export function WaveformPanel({ waveformId, steps = [], viewport = DEFAULT_VIEWP
   const [pickerOpen, setPickerOpen] = useState(false)
   const addBtnRef = useRef<HTMLButtonElement>(null)
 
+  // Independent pan/zoom state for waveform area
+  const [wvZoom, setWvZoom] = useState(1)
+  const [wvPanX, setWvPanX] = useState(0)
+  const wvPanRef = useRef({ panX: 0 })
+  const svgAreaRef = useRef<HTMLDivElement>(null)
+
+  // Keep ref in sync with state
+  useEffect(() => { wvPanRef.current.panX = wvPanX }, [wvPanX])
+
+  // Reset pan/zoom when waveform data changes
+  useEffect(() => {
+    setWvZoom(1)
+    setWvPanX(0)
+  }, [waveformId])
+
+  // Wheel zoom — horizontal only, centered on cursor
+  const handleWheelZoom = useCallback((e: React.WheelEvent) => {
+    e.preventDefault()
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+    setWvZoom((prev) => {
+      const next = Math.min(Math.max(prev * factor, 0.1), 50)
+      // Adjust panX so the point under the cursor stays fixed
+      const rect = svgAreaRef.current?.getBoundingClientRect()
+      if (rect) {
+        const cursorX = e.clientX - rect.left
+        const currentPanX = wvPanRef.current.panX
+        const pointInContent = (cursorX - currentPanX) / prev
+        const newPanX = cursorX - pointInContent * next
+        setWvPanX(newPanX)
+      }
+      return next
+    })
+  }, [])
+
+  // Drag-to-pan on the SVG area — attach listeners directly in mousedown
+  // so they are guaranteed to be active regardless of React render timing.
+  const handlePanStart = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    const startX = e.clientX
+    const startPanX = wvPanRef.current.panX
+
+    document.body.style.cursor = 'grabbing'
+
+    function onMove(ev: MouseEvent) {
+      const dx = ev.clientX - startX
+      const newPanX = startPanX + dx
+      wvPanRef.current.panX = newPanX
+      setWvPanX(newPanX)
+    }
+    function onUp() {
+      document.body.style.cursor = ''
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [])
+
   // Drag reorder state
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
@@ -496,19 +419,21 @@ export function WaveformPanel({ waveformId, steps = [], viewport = DEFAULT_VIEWP
   const [dragMouseX, setDragMouseX] = useState(0)
   const labelColumnRef = useRef<HTMLDivElement>(null)
 
-  // Measure container width
+  // Measure the actual SVG area width (the flex:1 div right of the label column).
+  // Re-attach observer when waveformData becomes available (svgAreaRef mounts).
+  const [svgAreaWidth, setSvgAreaWidth] = useState(800)
   useEffect(() => {
-    const el = containerRef.current
+    const el = svgAreaRef.current
     if (!el) return
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width)
+        setSvgAreaWidth(entry.contentRect.width)
       }
     })
     observer.observe(el)
-    setContainerWidth(el.clientWidth)
+    setSvgAreaWidth(el.clientWidth)
     return () => observer.disconnect()
-  }, [])
+  }, [waveformData, isExpanded])
 
   // Fetch signal data
   useEffect(() => {
@@ -606,7 +531,7 @@ export function WaveformPanel({ waveformId, steps = [], viewport = DEFAULT_VIEWP
       const relY = e.clientY - rect.top + col.scrollTop
       const targetIdx = Math.max(0, Math.min(
         Math.floor(relY / ROW_HEIGHT),
-        (col.children[0] as HTMLElement)?.childElementCount - 1 ?? 0,
+        ((col.children[0] as HTMLElement)?.childElementCount ?? 1) - 1,
       ))
       setDragOver(targetIdx)
       dragOverRef.current = targetIdx
@@ -629,14 +554,13 @@ export function WaveformPanel({ waveformId, steps = [], viewport = DEFAULT_VIEWP
     : []
 
   const endTimePs = waveformData?.end_time ?? 0
-  const waveformAreaWidth = containerWidth - LABEL_WIDTH
-  const svgWidth = containerWidth
+  const svgWidth = svgAreaWidth
   const svgHeight = Math.max(visibleSignals.length * ROW_HEIGHT, ROW_HEIGHT)
 
   const timeToX = buildTimeToX({
     totalDurationPs: endTimePs,
-    canvasWidthPx: waveformAreaWidth,
-    originOffsetPx: LABEL_WIDTH,
+    canvasWidthPx: svgAreaWidth,
+    originOffsetPx: 0,
   })
 
   const bodyHeight = panelHeight - 36 // subtract header height
@@ -659,6 +583,15 @@ export function WaveformPanel({ waveformId, steps = [], viewport = DEFAULT_VIEWP
             <span className="text-xs text-red-500 max-w-xs truncate" title={error}>
               {error}
             </span>
+          )}
+          {waveformData && wvZoom !== 1 && (
+            <button
+              onClick={() => { setWvZoom(1); setWvPanX(0) }}
+              className="px-2 py-0.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+              title="Reset zoom"
+            >
+              {Math.round(wvZoom * 100)}% — Reset
+            </button>
           )}
           <button
             onClick={() => setIsExpanded((prev) => !prev)}
@@ -710,9 +643,6 @@ export function WaveformPanel({ waveformId, steps = [], viewport = DEFAULT_VIEWP
           )}
 
           {waveformData && (visibleSignals.length > 0 || pickerOpen) && (() => {
-            const waveformTransform =
-              `translate(${viewport.x}, 0) scale(${viewport.zoom}, 1)`
-
             return (
               <div style={{ display: 'flex', height: '100%' }}>
                 {/* HTML label column + add button */}
@@ -827,8 +757,13 @@ export function WaveformPanel({ waveformId, steps = [], viewport = DEFAULT_VIEWP
                   </div>
                 )}
 
-                {/* SVG waveform area */}
-                <div style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden' }}>
+                {/* SVG waveform area — independent pan/zoom */}
+                <div
+                  ref={svgAreaRef}
+                  style={{ flex: 1, overflow: 'hidden', cursor: 'grab' }}
+                  onWheel={handleWheelZoom}
+                  onMouseDown={handlePanStart}
+                >
                   <svg
                     width={svgWidth}
                     height={svgHeight}
@@ -836,20 +771,13 @@ export function WaveformPanel({ waveformId, steps = [], viewport = DEFAULT_VIEWP
                   >
                     <defs>
                       <clipPath id="waveform-area-clip">
-                        <rect x={LABEL_WIDTH} y={0} width={svgWidth - LABEL_WIDTH} height={svgHeight} />
+                        <rect x={0} y={0} width={svgWidth} height={svgHeight} />
                       </clipPath>
                     </defs>
 
                     <rect x={0} y={0} width={svgWidth} height={svgHeight} fill="#ffffff" />
 
-                    <g transform={waveformTransform} clipPath="url(#waveform-area-clip)">
-                      <StepOverlays
-                        steps={steps}
-                        timeToX={timeToX}
-                        svgHeight={svgHeight}
-                        svgWidth={svgWidth}
-                      />
-
+                    <g transform={`translate(${wvPanX}, 0) scale(${wvZoom}, 1)`} clipPath="url(#waveform-area-clip)">
                       {visibleSignals.map((signalName, rowIndex) => {
                         const sigData = waveformData.signals[signalName]
                         return (
@@ -863,17 +791,11 @@ export function WaveformPanel({ waveformId, steps = [], viewport = DEFAULT_VIEWP
                           />
                         )
                       })}
+                      {/* Start / end marker lines */}
+                      <line x1={timeToX(0)} y1={0} x2={timeToX(0)} y2={svgHeight} stroke="red" strokeWidth={1} />
+                      <line x1={timeToX(endTimePs)} y1={0} x2={timeToX(endTimePs)} y2={svgHeight} stroke="red" strokeWidth={1} />
                     </g>
 
-                    {/* Grid lines in label area for row alignment */}
-                    {visibleSignals.map((_, i) => (
-                      <line
-                        key={`grid-${i}`}
-                        x1={0} y1={(i + 1) * ROW_HEIGHT}
-                        x2={LABEL_WIDTH} y2={(i + 1) * ROW_HEIGHT}
-                        stroke="#e5e7eb" strokeWidth={0.5}
-                      />
-                    ))}
                   </svg>
                 </div>
               </div>

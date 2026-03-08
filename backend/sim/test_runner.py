@@ -458,22 +458,25 @@ def _map_protocol_results(
     buffered_steps: list[dict],
     txn_results: list,
 ) -> list[dict]:
-    """Map TxnResult objects back to individual send_byte/recv_byte step results.
+    """Map TxnResult objects back to per-step result dicts.
 
-    The ProtocolInterpreter groups steps into transactions.  This function
-    reconstructs per-step results so that every send_byte and recv_byte in the
-    original buffered step list gets its own result entry.
+    Every step in *buffered_steps* (including ``start``, ``stop``, and
+    ``repeated_start``) produces a result entry with its own
+    ``time_range_ps`` derived from the per-byte timestamps recorded by
+    the driver.
 
-    Mapping rules
-    -------------
-    - ``start`` / ``stop`` / ``repeated_start`` steps produce no result entry.
-    - The first ``send_byte`` after ``start`` or ``repeated_start`` is the
-      address+RW byte; it is consumed by the transaction but still gets a
-      result entry (op=``send_byte``, status=ok/fail, data=hex).
-    - Subsequent ``send_byte`` steps (data bytes) in a write transaction each
-      get a result entry with the byte value.
-    - Each ``recv_byte`` step in a read transaction gets a result entry with
-      the received byte value (or None on NACK).
+    Timing layout within a transaction::
+
+        txn.start_time_ps                                 txn.end_time_ps
+        |-- start --|-- byte0 --|-- byte1 --|-- ... --|--(stop/rs)--|
+                    ^           ^
+                byte_end[0]  byte_end[1]
+
+    - ``start`` / ``repeated_start``: from txn start to first byte end
+      (or txn end if no bytes).
+    - Each ``send_byte`` / ``recv_byte``: between consecutive byte-end
+      timestamps.
+    - ``stop``: from last byte end of last txn to overall end.
 
     Parameters
     ----------
@@ -486,48 +489,94 @@ def _map_protocol_results(
     Returns
     -------
     list[dict]
-        Per-step result dicts for every send_byte and recv_byte in the buffer.
+        One result dict per step in *buffered_steps*.
     """
     step_results: list[dict] = []
     txn_idx = 0            # current index into txn_results
     is_addr_byte = True    # True immediately after start/repeated_start
     read_byte_idx = 0      # index into current txn's data_read list
+    byte_idx = 0           # index into current txn's byte_end_times_ps
+
+    def _current_txn():
+        if txn_idx < len(txn_results):
+            return txn_results[txn_idx]
+        return None
+
+    def _byte_time_range() -> list[int] | None:
+        """Return [start, end] for the current byte within the current txn."""
+        tr = _current_txn()
+        if tr is None or tr.start_time_ps is None or tr.end_time_ps is None:
+            return None
+        times = tr.byte_end_times_ps or []
+        # Start of this byte: previous byte end, or txn start.
+        t0 = times[byte_idx - 1] if byte_idx > 0 else tr.start_time_ps
+        # End of this byte: this byte end, or txn end.
+        t1 = times[byte_idx] if byte_idx < len(times) else tr.end_time_ps
+        return [t0, t1]
 
     for step in buffered_steps:
         op = step["op"]
 
-        if op in ("start", "stop"):
-            # No result entry for control markers.
+        if op == "start":
+            tr = _current_txn()
+            time_range: list[int] | None = None
+            if tr and tr.start_time_ps is not None:
+                times = tr.byte_end_times_ps or []
+                end = times[0] if times else (tr.end_time_ps or tr.start_time_ps)
+                time_range = [tr.start_time_ps, end]
+            entry: dict = {"op": "start", "status": "ok"}
+            if time_range is not None:
+                entry["time_range_ps"] = time_range
+            step_results.append(entry)
+            is_addr_byte = True
+            byte_idx = 0
+            continue
+
+        if op == "stop":
+            # Stop occupies the time after the last byte of the last txn.
+            tr = _current_txn()
+            time_range = None
+            if tr and tr.end_time_ps is not None:
+                times = tr.byte_end_times_ps or []
+                start = times[-1] if times else (tr.start_time_ps or tr.end_time_ps)
+                time_range = [start, tr.end_time_ps]
+            entry = {"op": "stop", "status": "ok"}
+            if time_range is not None:
+                entry["time_range_ps"] = time_range
+            step_results.append(entry)
             continue
 
         if op == "repeated_start":
-            # Advance to the next transaction result and reset per-txn state.
+            # Repeated start occupies the boundary between two transactions.
+            old_tr = _current_txn()
             txn_idx += 1
+            new_tr = _current_txn()
             is_addr_byte = True
             read_byte_idx = 0
+            byte_idx = 0
+            time_range = None
+            if old_tr and new_tr and old_tr.end_time_ps is not None and new_tr.start_time_ps is not None:
+                # old_tr.end_time_ps == new_tr.start_time_ps at the RS boundary
+                old_times = old_tr.byte_end_times_ps or []
+                start = old_times[-1] if old_times else (old_tr.start_time_ps or old_tr.end_time_ps)
+                new_times = new_tr.byte_end_times_ps or []
+                end = new_times[0] if new_times else (new_tr.end_time_ps or new_tr.start_time_ps)
+                time_range = [start, end]
+            entry = {"op": "repeated_start", "status": "ok"}
+            if time_range is not None:
+                entry["time_range_ps"] = time_range
+            step_results.append(entry)
             continue
 
         # Retrieve the TxnResult for the current transaction group.
-        if txn_idx < len(txn_results):
-            txn_res = txn_results[txn_idx]
-            ack_ok: bool = txn_res.ack_ok
-        else:
-            # Defensive fallback — more steps than results (shouldn't happen).
-            ack_ok = False
-            txn_res = None
-
-        # Build the time_range_ps list from TxnResult timing if available.
-        time_range: list | None = None
-        if (
-            txn_res is not None
-            and txn_res.start_time_ps is not None
-            and txn_res.end_time_ps is not None
-        ):
-            time_range = [txn_res.start_time_ps, txn_res.end_time_ps]
+        tr = _current_txn()
+        ack_ok: bool = tr.ack_ok if tr else False
 
         if op == "send_byte":
             byte_val: int = step["data"]
-            entry: dict = {
+            time_range = _byte_time_range()
+            byte_idx += 1
+            entry = {
                 "op": "send_byte",
                 "data": hex(byte_val),
                 "status": "ok" if ack_ok else "fail",
@@ -535,7 +584,6 @@ def _map_protocol_results(
             if time_range is not None:
                 entry["time_range_ps"] = time_range
             if is_addr_byte:
-                # Decode the address+RW byte for informational purposes.
                 addr = (byte_val >> 1) & 0x7F
                 rw_str = "read" if (byte_val & 0x01) else "write"
                 entry["addr"] = hex(addr)
@@ -544,6 +592,8 @@ def _map_protocol_results(
             step_results.append(entry)
 
         elif op == "recv_byte":
+            time_range = _byte_time_range()
+            byte_idx += 1
             recv_entry: dict = {
                 "op": "recv_byte",
                 "ack": step["ack"],
@@ -551,8 +601,8 @@ def _map_protocol_results(
             }
             if time_range is not None:
                 recv_entry["time_range_ps"] = time_range
-            if txn_res is not None and read_byte_idx < len(txn_res.data_read):
-                recv_entry["data"] = hex(txn_res.data_read[read_byte_idx])
+            if tr is not None and read_byte_idx < len(tr.data_read):
+                recv_entry["data"] = hex(tr.data_read[read_byte_idx])
                 read_byte_idx += 1
             else:
                 recv_entry["data"] = None
@@ -587,8 +637,8 @@ async def execute_sequence(
     -------
     list[dict]
         List of per-step result dicts in the same order as *steps* (protocol
-        buffers are expanded — start/stop/repeated_start produce no entries,
-        but each send_byte/recv_byte produces one).
+        buffers are expanded — every step including start/stop/repeated_start
+        produces one entry).
     """
     results: list[dict] = []
     # Buffer accumulates steps from a ``start`` until the matching ``stop``.
@@ -618,16 +668,15 @@ async def execute_sequence(
                     )
                     results.extend(proto_results)
                 except Exception as exc:  # noqa: BLE001
-                    # On any error, emit one error entry per data step in buffer.
+                    # On any error, emit one error entry per step in buffer.
                     for buf_step in protocol_buffer:
-                        if buf_step["op"] in ("send_byte", "recv_byte"):
-                            results.append(
-                                {
-                                    "op": buf_step["op"],
-                                    "status": "error",
-                                    "message": str(exc),
-                                }
-                            )
+                        results.append(
+                            {
+                                "op": buf_step["op"],
+                                "status": "error",
+                                "message": str(exc),
+                            }
+                        )
                 protocol_buffer = []
 
         else:

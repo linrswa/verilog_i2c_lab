@@ -54,9 +54,15 @@ triggers_stub.RisingEdge = mock.MagicMock()
 triggers_stub.ClockCycles = mock.MagicMock()
 cocotb_stub.triggers = triggers_stub
 
+# Stub cocotb.utils (used by test_runner.py for get_sim_time)
+utils_stub = types.ModuleType("cocotb.utils")
+utils_stub.get_sim_time = mock.MagicMock(return_value=0)
+cocotb_stub.utils = utils_stub
+
 sys.modules.setdefault("cocotb", cocotb_stub)
 sys.modules.setdefault("cocotb.runner", runner_stub)
 sys.modules.setdefault("cocotb.triggers", triggers_stub)
+sys.modules.setdefault("cocotb.utils", utils_stub)
 
 # Now we can safely import the module under test.
 from test_runner import (  # noqa: E402
@@ -213,7 +219,7 @@ class TestMapProtocolResults:
         return TxnResult(ack_ok=ack_ok, data_read=data, bytes_written=0)
 
     def test_simple_write_sequence(self):
-        """start → send_byte(0xA0) → send_byte(0x10) → stop maps to 2 send_byte results."""
+        """start → send_byte(0xA0) → send_byte(0x10) → stop produces 4 results."""
         buffered = [
             _step("start"),
             _step("send_byte", data=0xA0),
@@ -223,18 +229,20 @@ class TestMapProtocolResults:
         txn_results = [self._write_txn_result()]
         results = _map_protocol_results(buffered, txn_results)
 
-        assert len(results) == 2
+        assert len(results) == 4
+        assert results[0]["op"] == "start"
         # Address byte
-        assert results[0]["op"] == "send_byte"
-        assert results[0]["data"] == hex(0xA0)
-        assert results[0]["status"] == "ok"
-        assert results[0]["addr"] == hex(0x50)
-        assert results[0]["rw"] == "write"
-        # Data byte
         assert results[1]["op"] == "send_byte"
-        assert results[1]["data"] == hex(0x10)
+        assert results[1]["data"] == hex(0xA0)
         assert results[1]["status"] == "ok"
-        assert "addr" not in results[1]
+        assert results[1]["addr"] == hex(0x50)
+        assert results[1]["rw"] == "write"
+        # Data byte
+        assert results[2]["op"] == "send_byte"
+        assert results[2]["data"] == hex(0x10)
+        assert results[2]["status"] == "ok"
+        assert "addr" not in results[2]
+        assert results[3]["op"] == "stop"
 
     def test_simple_read_sequence(self):
         """start → send_byte(0xA1) → recv_byte(True) → recv_byte(False) → stop."""
@@ -248,17 +256,19 @@ class TestMapProtocolResults:
         txn_results = [self._read_txn_result(data=[0xBE, 0xEF])]
         results = _map_protocol_results(buffered, txn_results)
 
-        assert len(results) == 3
+        assert len(results) == 5
+        assert results[0]["op"] == "start"
         # Address byte
-        assert results[0]["op"] == "send_byte"
-        assert results[0]["rw"] == "read"
+        assert results[1]["op"] == "send_byte"
+        assert results[1]["rw"] == "read"
         # First recv
-        assert results[1]["op"] == "recv_byte"
-        assert results[1]["data"] == hex(0xBE)
-        assert results[1]["status"] == "ok"
-        # Second recv
         assert results[2]["op"] == "recv_byte"
-        assert results[2]["data"] == hex(0xEF)
+        assert results[2]["data"] == hex(0xBE)
+        assert results[2]["status"] == "ok"
+        # Second recv
+        assert results[3]["op"] == "recv_byte"
+        assert results[3]["data"] == hex(0xEF)
+        assert results[4]["op"] == "stop"
 
     def test_repeated_start_sequence(self):
         """Write txn → repeated_start → read txn — two TxnResults."""
@@ -277,16 +287,19 @@ class TestMapProtocolResults:
         ]
         results = _map_protocol_results(buffered, txn_results)
 
-        assert len(results) == 4
+        assert len(results) == 7
+        assert results[0]["op"] == "start"
         # Write segment
-        assert results[0]["rw"] == "write"
-        assert results[1]["op"] == "send_byte"
+        assert results[1]["rw"] == "write"
+        assert results[2]["op"] == "send_byte"
+        assert results[3]["op"] == "repeated_start"
         # Read segment
-        assert results[2]["rw"] == "read"
-        assert results[3]["data"] == hex(0xCC)
+        assert results[4]["rw"] == "read"
+        assert results[5]["data"] == hex(0xCC)
+        assert results[6]["op"] == "stop"
 
     def test_nack_propagates_to_all_steps(self):
-        """When TxnResult.ack_ok=False, all steps in that transaction report fail."""
+        """When TxnResult.ack_ok=False, send/recv steps report fail; framing steps report ok."""
         buffered = [
             _step("start"),
             _step("send_byte", data=0xA0),
@@ -296,10 +309,13 @@ class TestMapProtocolResults:
         txn_results = [self._write_txn_result(ack_ok=False)]
         results = _map_protocol_results(buffered, txn_results)
 
-        assert all(r["status"] == "fail" for r in results)
+        assert results[0]["status"] == "ok"   # start
+        assert results[1]["status"] == "fail"  # send_byte
+        assert results[2]["status"] == "fail"  # send_byte
+        assert results[3]["status"] == "ok"   # stop
 
     def test_no_data_bytes(self):
-        """Address-only write (scan-style) — just the addr byte gets a result."""
+        """Address-only write (scan-style) — start, addr byte, stop."""
         buffered = [
             _step("start"),
             _step("send_byte", data=0xA0),
@@ -308,9 +324,11 @@ class TestMapProtocolResults:
         txn_results = [self._write_txn_result()]
         results = _map_protocol_results(buffered, txn_results)
 
-        assert len(results) == 1
-        assert results[0]["op"] == "send_byte"
-        assert results[0]["addr"] == hex(0x50)
+        assert len(results) == 3
+        assert results[0]["op"] == "start"
+        assert results[1]["op"] == "send_byte"
+        assert results[1]["addr"] == hex(0x50)
+        assert results[2]["op"] == "stop"
 
 
 # ---------------------------------------------------------------------------
@@ -357,10 +375,12 @@ class TestExecuteSequenceBuffering:
             results = await execute_sequence(driver, steps)
             # execute_transactions should have been called exactly once.
             driver.execute_transactions.assert_called_once()
-            # Results: one per send_byte (addr + data), no entries for start/stop.
-            assert len(results) == 2
-            assert results[0]["op"] == "send_byte"
+            # Results: one per step including start/stop.
+            assert len(results) == 4
+            assert results[0]["op"] == "start"
             assert results[1]["op"] == "send_byte"
+            assert results[2]["op"] == "send_byte"
+            assert results[3]["op"] == "stop"
 
         asyncio.run(_run())
 
@@ -396,11 +416,13 @@ class TestExecuteSequenceBuffering:
             ]
             driver = self._make_mock_driver()
             results = await execute_sequence(driver, steps)
-            # reset, one send_byte result, delay
-            assert len(results) == 3
+            # reset, start, send_byte, stop, delay
+            assert len(results) == 5
             assert results[0]["op"] == "reset"
-            assert results[1]["op"] == "send_byte"
-            assert results[2]["op"] == "delay"
+            assert results[1]["op"] == "start"
+            assert results[2]["op"] == "send_byte"
+            assert results[3]["op"] == "stop"
+            assert results[4]["op"] == "delay"
 
         asyncio.run(_run())
 
@@ -418,8 +440,8 @@ class TestExecuteSequenceBuffering:
             ]
             driver = self._make_mock_driver()
             results = await execute_sequence(driver, steps)
-            # Both send_byte and recv_byte get error entries.
-            assert len(results) == 2
+            # All steps in the buffer get error entries.
+            assert len(results) == 4
             assert all(r["status"] == "error" for r in results)
             assert all("message" in r for r in results)
 
@@ -441,9 +463,9 @@ class TestExecuteSequenceBuffering:
                 {"op": "stop"},
             ]
             results = await execute_sequence(driver, steps)
-            assert len(results) == 3
-            assert results[1]["data"] == hex(0xDE)
-            assert results[2]["data"] == hex(0xAD)
+            assert len(results) == 5
+            assert results[2]["data"] == hex(0xDE)
+            assert results[3]["data"] == hex(0xAD)
 
         asyncio.run(_run())
 
@@ -466,7 +488,7 @@ class TestExecuteSequenceBuffering:
             ]
             results = await execute_sequence(driver, steps)
             assert driver.execute_transactions.call_count == 2
-            # Block 1: 1 send_byte; Block 2: 2 send_bytes
-            assert len(results) == 3
+            # Block 1: start + send_byte + stop = 3; Block 2: start + 2 send_byte + stop = 4
+            assert len(results) == 7
 
         asyncio.run(_run())

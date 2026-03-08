@@ -26,14 +26,17 @@
  */
 
 // ── Default pre-simulation layout constants (shared with App.tsx) ────────────
-/** Width of each protocol step node in pixels (pre-simulation default). */
+/** Width of each protocol step node in pixels. */
 export const NODE_WIDTH = 160
 
-/** Horizontal gap between consecutive nodes in pixels (pre-simulation). */
-export const GAP = 80
+/** Height of each node (estimated) for vertical gap calculation. */
+export const NODE_HEIGHT = 80
 
-/** Fixed y-coordinate for all nodes in the horizontal pipeline layout. */
-export const LAYOUT_Y = 200
+/** Vertical gap between consecutive nodes in pixels. */
+export const GAP = 40
+
+/** Fixed x-coordinate for all nodes in the vertical pipeline layout. */
+export const LAYOUT_X = 100
 
 /**
  * Width of the waveform label column in pixels.  Exported so that the node

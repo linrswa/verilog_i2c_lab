@@ -1,15 +1,12 @@
 import { Handle, Position, useReactFlow } from '@xyflow/react'
 import type { NodeProps, Node } from '@xyflow/react'
 import type { ChangeEvent } from 'react'
-import { useNodeHighlight } from '../../lib/useNodeHighlight'
-
 export interface RecvByteNodeData {
   ack: boolean
   receivedData?: string
   status?: 'ok' | 'fail'
   warning?: string
   nodeTooltip?: string
-  stepIndex?: number | null
   [key: string]: unknown
 }
 
@@ -31,27 +28,16 @@ export function RecvByteNode({ id, data }: NodeProps<RecvByteNode>) {
   const status = data.status
   const warning = data.warning as string | undefined
   const nodeTooltip = data.nodeTooltip as string | undefined
-  const stepIndex = data.stepIndex as number | null | undefined
-  const { isHovered, isSelected, onMouseEnter, onMouseLeave, onClick } = useNodeHighlight(stepIndex)
-
-  const highlightRing = isSelected
-    ? 'ring-2 ring-blue-500 ring-offset-1'
-    : isHovered
-      ? 'ring-2 ring-blue-400 ring-offset-1'
-      : ''
 
   return (
     <div
       title={nodeTooltip}
-      className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-teal-500'} bg-teal-50 shadow-sm w-full overflow-hidden ${highlightRing}`}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      onClick={onClick}
+      className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-teal-500'} bg-teal-50 shadow-sm w-full overflow-hidden`}
     >
-      {/* Input handle — left side (horizontal layout) */}
+      {/* Input handle — top (vertical layout) */}
       <Handle
         type="target"
-        position={Position.Left}
+        position={Position.Top}
         id="in"
         className="w-3 h-3 bg-teal-500 border-2 border-white"
       />
@@ -107,10 +93,10 @@ export function RecvByteNode({ id, data }: NodeProps<RecvByteNode>) {
         )}
       </div>
 
-      {/* Output handle — right side (horizontal layout) */}
+      {/* Output handle — bottom (vertical layout) */}
       <Handle
         type="source"
-        position={Position.Right}
+        position={Position.Bottom}
         id="out"
         className="w-3 h-3 bg-teal-500 border-2 border-white"
       />

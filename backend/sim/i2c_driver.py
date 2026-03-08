@@ -627,8 +627,14 @@ class I2CDriver:
         # Index 0 corresponds to txns[0], etc.
         seg_received: list = [[] for _ in range(n)]
 
+        # Per-transaction byte completion timestamps (includes addr byte).
+        seg_byte_times: list = [[] for _ in range(n)]
+
         # Record simulation time at the start of this segment.
         seg_start_ps: int = int(get_sim_time("ps"))
+        # Per-transaction start times.
+        txn_start_times: list = [None] * n
+        txn_start_times[0] = seg_start_ps
 
         # ----------------------------------------------------------------
         # Set up and start the FIRST transaction in the segment.
@@ -664,6 +670,8 @@ class I2CDriver:
 
         # Track the previous FSM state to detect REPEATED_START entry.
         prev_state: int = -1
+        # Track byte_count to detect when a byte transfer completes.
+        prev_byte_count: int = -1
 
         while True:
             await RisingEdge(dut.clk)
@@ -672,6 +680,15 @@ class I2CDriver:
                 current_state = int(master.state.value)
             except ValueError:
                 current_state = prev_state  # treat as unchanged if X/Z
+
+            # -------- Track byte_count for per-byte timestamps --------
+            try:
+                cur_byte_count = int(dut.byte_count.value)
+            except ValueError:
+                cur_byte_count = prev_byte_count
+            if cur_byte_count != prev_byte_count and prev_byte_count >= 0:
+                seg_byte_times[seg_idx].append(int(get_sim_time("ps")))
+            prev_byte_count = cur_byte_count
 
             # -------- Capture read bytes --------
             if dut.data_valid.value == 1 and txns[seg_idx].rw == 1:
@@ -688,6 +705,9 @@ class I2CDriver:
 
             # -------- Handle REPEATED_START state transition --------
             if current_state == _REPEATED_START_STATE and prev_state != _REPEATED_START_STATE:
+                # Record the repeated-start boundary timestamp.
+                rs_time_ps = int(get_sim_time("ps"))
+
                 # We just entered REPEATED_START.  The RTL will capture
                 # slave_addr/rw at HIGH_MID of this state.  Update signals
                 # for the NEXT transaction now (well before HIGH_MID).
@@ -709,6 +729,8 @@ class I2CDriver:
 
                     # Advance segment tracking.
                     seg_idx = next_idx
+                    txn_start_times[next_idx] = rs_time_ps
+                    prev_byte_count = -1  # reset byte_count tracking for new txn
                     payload = next_payload
                     next_payload_idx = 1
                     in_addr_ack_wait = len(payload) > 1
@@ -738,22 +760,26 @@ class I2CDriver:
         ack_ok = int(dut.ack_error.value) == 0
 
         for k, txn in enumerate(txns):
+            # Per-transaction end time: next txn's start, or seg_end.
+            txn_end = txn_start_times[k + 1] if k + 1 < n else seg_end_ps
             if txn.rw == 0:
                 p = list(txn.data_bytes)
                 seg_results[k] = TxnResult(
                     ack_ok=ack_ok,
                     data_read=[],
                     bytes_written=len(p) if ack_ok else 0,
-                    start_time_ps=seg_start_ps,
-                    end_time_ps=seg_end_ps,
+                    start_time_ps=txn_start_times[k],
+                    end_time_ps=txn_end,
+                    byte_end_times_ps=seg_byte_times[k],
                 )
             else:
                 seg_results[k] = TxnResult(
                     ack_ok=ack_ok,
                     data_read=seg_received[k],
                     bytes_written=0,
-                    start_time_ps=seg_start_ps,
-                    end_time_ps=seg_end_ps,
+                    start_time_ps=txn_start_times[k],
+                    end_time_ps=txn_end,
+                    byte_end_times_ps=seg_byte_times[k],
                 )
 
         return seg_results

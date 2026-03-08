@@ -8,7 +8,7 @@ import {
   MarkerType,
   useReactFlow,
 } from '@xyflow/react'
-import type { Node, Edge, NodeTypes, NodeChange, EdgeChange, OnNodeDrag, Viewport } from '@xyflow/react'
+import type { Node, Edge, NodeTypes, NodeChange, EdgeChange, OnNodeDrag } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
 import { Toolbar } from './components/Toolbar'
@@ -16,7 +16,6 @@ import { Sidebar } from './components/Sidebar'
 import { ResizeHandle } from './components/ResizeHandle'
 import { ResultPanel } from './components/ResultPanel'
 import { WaveformPanel } from './components/WaveformPanel'
-import type { FlowViewport } from './components/WaveformPanel'
 import {
   StartNode,
   StopNode,
@@ -35,39 +34,35 @@ import {
 } from './lib/useFlowPersistence'
 import { chainHasErrors } from './lib/validate'
 import { validateProtocolFlow } from './lib/protocol-validate'
-import { buildTimeToX, NODE_WIDTH as WAVEFORM_NODE_WIDTH, GAP as WAVEFORM_GAP, LAYOUT_Y as WAVEFORM_LAYOUT_Y, LABEL_WIDTH as WAVEFORM_LABEL_WIDTH } from './lib/waveform'
-import { HighlightContext } from './lib/highlightContext'
+import { NODE_HEIGHT as WAVEFORM_NODE_HEIGHT, GAP as WAVEFORM_GAP, LAYOUT_X as WAVEFORM_LAYOUT_X } from './lib/waveform'
 
 /** Status of each step after simulation: 'ok' | 'fail', keyed by node ID. */
 type NodeStatusMap = Map<string, 'ok' | 'fail'>
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 // Re-export from lib/waveform so they remain the single source of truth.
-const NODE_WIDTH = WAVEFORM_NODE_WIDTH
+const NODE_HEIGHT = WAVEFORM_NODE_HEIGHT
 const GAP = WAVEFORM_GAP
-const LAYOUT_Y = WAVEFORM_LAYOUT_Y
-/** Offset applied to all node x-positions so they align with the waveform label column. */
-const X_OFFSET = WAVEFORM_LABEL_WIDTH
+const LAYOUT_X = WAVEFORM_LAYOUT_X
+const Y_OFFSET = 0
 
 /**
- * Apply horizontal auto-layout: all nodes share the same y-coordinate and
- * are spaced evenly along the x-axis.  Returns a new nodes array — does not
+ * Apply vertical auto-layout: all nodes share the same x-coordinate and
+ * are spaced evenly along the y-axis.  Returns a new nodes array — does not
  * mutate the input.
  *
  * Also strips any post-simulation time-based layout properties (style.width,
  * nodeTooltip) so nodes revert to their default appearance.
  */
-function applyHorizontalLayout(nodes: Node[]): Node[] {
+function applyVerticalLayout(nodes: Node[]): Node[] {
   return nodes.map((node, i) => {
-    // Strip time-based width override and tooltip from post-simulation layout,
-    // and step index (which is only valid for the most recent simulation run).
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { width: _removedWidth, ...styleWithoutWidth } = (node.style as Record<string, unknown> | undefined) ?? {}
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { nodeTooltip: _removedTooltip, stepIndex: _removedStepIndex, ...dataWithoutTooltip } = node.data as Record<string, unknown>
+    const { nodeTooltip: _removedTooltip, ...dataWithoutTooltip } = node.data as Record<string, unknown>
     return {
       ...node,
-      position: { x: X_OFFSET + i * (NODE_WIDTH + GAP), y: LAYOUT_Y },
+      position: { x: LAYOUT_X, y: Y_OFFSET + i * (NODE_HEIGHT + GAP) },
       style: Object.keys(styleWithoutWidth).length > 0 ? styleWithoutWidth as React.CSSProperties : undefined,
       data: dataWithoutTooltip,
     }
@@ -165,11 +160,11 @@ function templateToNodesAndEdges(template: TemplateDetail): { nodes: Node[]; edg
       id: `template-${i}-${now}`,
       type: nodeType,
       position: { x: 0, y: 0 },
-      data: stepToNodeData(step),
+      data: stepToNodeData(step as StepPayload),
     })
   }
 
-  const nodes = applyHorizontalLayout(rawNodes)
+  const nodes = applyVerticalLayout(rawNodes)
   const edges = buildAutoEdges(nodes)
 
   return { nodes, edges }
@@ -212,7 +207,6 @@ function FlowCanvas({
   onNodeDragStop,
   initialViewportRestored,
   onViewportRestored,
-  onViewportChange,
 }: {
   nodes: Node[]
   edges: Edge[]
@@ -222,7 +216,6 @@ function FlowCanvas({
   onNodeDragStop: OnNodeDrag
   initialViewportRestored: boolean
   onViewportRestored: () => void
-  onViewportChange: (vp: FlowViewport) => void
 }) {
   const { setViewport, getViewport } = useReactFlow()
 
@@ -232,8 +225,6 @@ function FlowCanvas({
     const saved = loadPersistedFlow()
     if (saved?.viewport) {
       setViewport(saved.viewport)
-      // Report restored viewport immediately so WaveformPanel starts in sync
-      onViewportChange(saved.viewport)
     }
     onViewportRestored()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -241,14 +232,6 @@ function FlowCanvas({
 
   // Auto-save nodes/edges/viewport to localStorage (debounced 500 ms)
   useFlowAutosave(nodes, edges, getViewport)
-
-  /** Forward React Flow viewport changes to the parent (for WaveformPanel sync). */
-  const handleMove = useCallback(
-    (_: unknown, vp: Viewport) => {
-      onViewportChange({ x: vp.x, y: vp.y, zoom: vp.zoom })
-    },
-    [onViewportChange],
-  )
 
   return (
     <div className="flex-1 relative">
@@ -260,7 +243,6 @@ function FlowCanvas({
         onEdgesChange={onEdgesChange}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
-        onMove={handleMove}
         defaultEdgeOptions={defaultEdgeOptions}
         deleteKeyCode={['Delete', 'Backspace']}
         nodesConnectable={false}
@@ -279,11 +261,11 @@ export default function App() {
   // Re-apply horizontal layout on load so saved positions are normalised.
   const [nodes, setNodes] = useState<Node[]>(() => {
     const saved = loadPersistedFlow()?.nodes ?? []
-    return applyHorizontalLayout(saved)
+    return applyVerticalLayout(saved)
   })
   const [edges, setEdges] = useState<Edge[]>(() => {
     const saved = loadPersistedFlow()?.nodes ?? []
-    const laid = applyHorizontalLayout(saved)
+    const laid = applyVerticalLayout(saved)
     return buildAutoEdges(laid)
   })
   const [isRunning, setIsRunning] = useState(false)
@@ -291,8 +273,6 @@ export default function App() {
   const [runError, setRunError] = useState<string | null>(null)
   // Tracks whether FlowCanvas has already applied the saved viewport
   const [viewportRestored, setViewportRestored] = useState(false)
-  // Tracks the current React Flow viewport for WaveformPanel synchronisation
-  const [flowViewport, setFlowViewport] = useState<FlowViewport>({ x: 0, y: 0, zoom: 1 })
   // Ref to the canvas column container — used to measure width for time-based node layout
   const canvasColumnRef = useRef<HTMLDivElement>(null)
   // Resizable pane sizes
@@ -317,26 +297,28 @@ export default function App() {
     setWaveformHeight((h) => { waveformHeightRef.current = h; return h })
   }, [])
 
-  // Cross-highlighting state: which waveform step is hovered/selected
-  const [hoveredStepIndex, setHoveredStepIndex] = useState<number | null>(null)
-  const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null)
+  const [resultWidth, setResultWidth] = useState(320)
+  const resultWidthRef = useRef(320)
+  const handleResultResize = useCallback((delta: number) => {
+    // Negative delta = dragging left = making panel wider
+    setResultWidth(Math.max(200, Math.min(700, resultWidthRef.current - delta)))
+  }, [])
+  const handleResultResizeEnd = useCallback(() => {
+    setResultWidth((w) => { resultWidthRef.current = w; return w })
+  }, [])
+
   /**
-   * Clear all node status badges and step indices by removing the `status` and
-   * `stepIndex` fields from node data.
-   * Called whenever the flow is modified so stale badges and highlight indices
-   * don't persist across runs.
+   * Clear all node status badges by removing the `status` field from node data.
+   * Called whenever the flow is modified so stale badges don't persist across runs.
    */
   const clearNodeStatuses = useCallback(() => {
     setNodes((nds) =>
       nds.map((n) => {
         const data = { ...n.data }
         delete data.status
-        delete data.stepIndex
         return { ...n, data }
       }),
     )
-    setHoveredStepIndex(null)
-    setSelectedStepIndex(null)
   }, [])
 
   // Run protocol-level validation whenever nodes or edges change.
@@ -385,15 +367,14 @@ export default function App() {
       clearNodeStatuses()
       setNodes((nds) => {
         const updated = applyNodeChanges(changes, nds)
-        return applyHorizontalLayout(updated)
+        if (hasRemoval) {
+          // Only re-layout and rebuild edges on deletion
+          const laid = applyVerticalLayout(updated)
+          setEdges(buildAutoEdges(laid))
+          return laid
+        }
+        return updated
       })
-      // Rebuild edges whenever node list may have changed (e.g. deletion)
-      if (hasRemoval) {
-        setNodes((nds) => {
-          setEdges(buildAutoEdges(nds))
-          return nds
-        })
-      }
     },
     [clearNodeStatuses],
   )
@@ -417,11 +398,11 @@ export default function App() {
         const newNode: Node = {
           id: `${nodeType}-${Date.now()}`,
           type: nodeType,
-          position: { x: 0, y: LAYOUT_Y },
+          position: { x: LAYOUT_X, y: 0 },
           data: buildDefaultData(nodeType),
         }
         const updated = [...existingNodes, newNode]
-        const laidOut = applyHorizontalLayout(updated)
+        const laidOut = applyVerticalLayout(updated)
         setEdges(buildAutoEdges(laidOut))
         return laidOut
       })
@@ -430,102 +411,25 @@ export default function App() {
   )
 
   /**
-   * During drag: lock the dragged node's y-position to LAYOUT_Y so nodes
-   * can only move horizontally. This mutates the nodes state in-place via
-   * setNodes so React Flow re-renders at the clamped position.
+   * During drag: allow free movement (no axis locking).
    */
-  const onNodeDrag: OnNodeDrag = useCallback((_event, draggedNode) => {
-    setNodes((nds) =>
-      nds.map((n) =>
-        n.id === draggedNode.id
-          ? { ...n, position: { x: draggedNode.position.x, y: LAYOUT_Y } }
-          : n,
-      ),
-    )
+  const onNodeDrag: OnNodeDrag = useCallback((_event, _draggedNode) => {
+    // No position clamping — nodes can move freely.
   }, [])
 
   /**
-   * On drag end: compute the insertion index from the dragged node's x-position,
-   * enforce START-first / STOP-last constraints, reorder the nodes array, then
-   * re-apply horizontal layout and rebuild edges.
+   * On drag end: reorder the nodes array based on x-position and rebuild edges,
+   * but keep nodes at their current (freely dragged) positions.
    */
   const onNodeDragStop: OnNodeDrag = useCallback((_event, draggedNode) => {
     setNodes((nds) => {
-      // Find the dragged node's current index and its node type
       const draggedIdx = nds.findIndex((n) => n.id === draggedNode.id)
       if (draggedIdx === -1) return nds
 
-      const draggedType = nds[draggedIdx].type
-
-      // START (i2c_start) and STOP (i2c_stop) cannot be reordered
-      if (draggedType === 'i2c_start' || draggedType === 'i2c_stop') {
-        // Snap back to canonical positions
-        const reLayout = applyHorizontalLayout(nds)
-        setEdges(buildAutoEdges(reLayout))
-        return reLayout
-      }
-
-      // Determine insertion index from x-position of dragged node.
-      // Use node center (x + NODE_WIDTH/2) as the reference point.
-      const draggedCenterX = draggedNode.position.x + NODE_WIDTH / 2
-
-      // Build a list of the other nodes with their canonical (layout) positions.
-      // We compare against the current node positions (before full re-layout)
-      // so we get a stable reference.
-      const others = nds.filter((n) => n.id !== draggedNode.id)
-
-      // Count how many other nodes' centers are to the left of the drag center
-      let insertAt = 0
-      for (const other of others) {
-        const otherCenterX = other.position.x + NODE_WIDTH / 2
-        if (otherCenterX < draggedCenterX) insertAt++
-      }
-
-      // Enforce boundaries: START must be index 0, STOP must be last
-      const startIdx = others.findIndex((n) => n.type === 'i2c_start')
-      const stopIdx = others.findIndex((n) => n.type === 'i2c_stop')
-
-      // insertAt is the position in `others` before which we insert the dragged node
-      // (i.e. final index in the new array)
-      // After inserting, index 0 should be START and last should be STOP.
-      // START is always at others[startIdx] which, in the new array with dragged inserted:
-      //   if insertAt <= startIdx, START shifts to startIdx+1
-      //   else stays at startIdx
-      // We clamp insertAt so the dragged node cannot land before START or after STOP.
-
-      // Minimum allowed insertAt: after the start node
-      let minInsert = 0
-      if (startIdx !== -1) {
-        // START is at others[startIdx]; after insertion dragged goes to insertAt.
-        // We need insertAt > (position of START in the new array).
-        // START's new position = startIdx + (insertAt <= startIdx ? 1 : 0)
-        // So if insertAt <= startIdx, START is at startIdx+1 — dragged is before START -> not allowed
-        // Minimum: insertAt = startIdx + 1
-        minInsert = startIdx + 1
-      }
-
-      // Maximum allowed insertAt: before the stop node
-      let maxInsert = others.length
-      if (stopIdx !== -1) {
-        // STOP is at others[stopIdx]; after insertion dragged goes to insertAt.
-        // STOP's new position = stopIdx + (insertAt <= stopIdx ? 1 : 0)
-        // If insertAt > stopIdx, STOP is at stopIdx — dragged is after STOP -> not allowed
-        // Maximum: insertAt = stopIdx
-        maxInsert = stopIdx
-      }
-
-      const clampedInsert = Math.max(minInsert, Math.min(maxInsert, insertAt))
-
-      // Build new ordered array: insert draggedNode at clampedInsert in others
-      const reordered = [
-        ...others.slice(0, clampedInsert),
-        nds[draggedIdx],
-        ...others.slice(clampedInsert),
-      ]
-
-      const reLayout = applyHorizontalLayout(reordered)
-      setEdges(buildAutoEdges(reLayout))
-      return reLayout
+      // Sort nodes by y-position to determine logical order for edges
+      const sorted = [...nds].sort((a, b) => a.position.y - b.position.y)
+      setEdges(buildAutoEdges(sorted))
+      return sorted
     })
   }, [])
 
@@ -575,106 +479,34 @@ export default function App() {
       const result = await runSimulation(steps)
       setSimulationResult(result)
 
-      // Build status map: result.steps only contains data-producing ops
-      // (send_byte, recv_byte, reset, write_bytes, etc.) — protocol framing
-      // ops (start, stop, repeated_start) produce no result entries.
-      // orderedNodeIds and steps are parallel arrays, so steps[i].op tells
-      // us whether orderedNodeIds[i] has a corresponding result entry.
+      // Build status map and time-range map.
+      // All steps (including start/stop/repeated_start) now produce result
+      // entries.  orderedNodeIds[i] maps 1:1 to result.steps[rIdx].
       const statusMap: NodeStatusMap = new Map()
-      const noResultOps = new Set(['start', 'stop', 'repeated_start'])
-      let resultIdx = 0
-      for (let i = 0; i < orderedNodeIds.length; i++) {
-        const nodeId = orderedNodeIds[i]
-        const sentOp = steps[i]?.op
-        if (sentOp && noResultOps.has(sentOp)) {
-          // Framing ops don't produce result entries — mark as ok
-          statusMap.set(nodeId, 'ok')
-          continue
-        }
-        const stepResult = result.steps[resultIdx]
-        if (stepResult !== undefined) {
-          const isOk = (stepResult as Record<string, unknown>).status === 'ok' || stepResult.passed === true
-          statusMap.set(nodeId, isOk ? 'ok' : 'fail')
-          resultIdx++
-        }
-      }
-
-      // Build node time-range map and node-to-step-index map by aligning
-      // result.steps with orderedNodeIds.
-      // The backend auto-prepends a `reset` step then strips it from results.
-      // result.steps only contains entries for data ops (send_byte, recv_byte)
-      // and legacy ops — NOT for framing ops (start, stop, repeated_start).
-      // We must skip framing ops when iterating orderedNodeIds.
       const nodeTimeRangeMap = new Map<string, [number, number]>()
-      // Maps node ID -> index in result.steps (for cross-highlighting)
-      const nodeStepIndexMap = new Map<string, number>()
       let rIdx = result.steps[0]?.op === 'reset' ? 1 : 0
       for (let i = 0; i < orderedNodeIds.length; i++) {
         const nodeId = orderedNodeIds[i]
-        const sentOp = steps[i]?.op
-        if (sentOp && noResultOps.has(sentOp)) {
-          // Framing ops produce no result entry — skip
-          continue
-        }
         if (rIdx >= result.steps.length) break
         const resultStep = result.steps[rIdx]
-        nodeStepIndexMap.set(nodeId, rIdx)
+        const isOk = (resultStep as Record<string, unknown>).status === 'ok' || resultStep.passed === true
+        statusMap.set(nodeId, isOk ? 'ok' : 'fail')
         if (resultStep?.time_range_ps) {
           nodeTimeRangeMap.set(nodeId, resultStep.time_range_ps)
         }
         rIdx++
       }
 
-      // Reset cross-highlighting when a new simulation completes
-      setHoveredStepIndex(null)
-      setSelectedStepIndex(null)
-
-      // Apply time-based layout if we have timing data and a total sim time.
-      // Canvas width is measured from the canvas column container; fall back to 1200px.
-      const totalDurationPs = result.sim_time_total_ps ?? 0
-      const canvasWidthPx = canvasColumnRef.current?.clientWidth ?? 1200
-
-      if (totalDurationPs > 0 && nodeTimeRangeMap.size > 0) {
-        // Offset by LABEL_WIDTH so nodes align with the waveform content area
-        const timeToX = buildTimeToX({ totalDurationPs, canvasWidthPx: canvasWidthPx - X_OFFSET, originOffsetPx: X_OFFSET })
-
-        setNodes((nds) =>
-          nds.map((n) => {
-            const timeRange = nodeTimeRangeMap.get(n.id)
-            const stepIndex = nodeStepIndexMap.get(n.id) ?? null
-            const statusUpdate = { status: statusMap.get(n.id) }
-            if (!timeRange) {
-              return { ...n, data: { ...n.data, ...statusUpdate, stepIndex } }
-            }
-            const [startPs, endPs] = timeRange
-            const x = timeToX(startPs)
-            const width = Math.max(timeToX(endPs) - x, 1)
-
-            // Build a tooltip title so narrow nodes still surface their details
-            const tipLines: string[] = [`Start: ${startPs.toLocaleString()} ps`, `End: ${endPs.toLocaleString()} ps`, `Duration: ${(endPs - startPs).toLocaleString()} ps`]
-            const nodeTooltip = tipLines.join('\n')
-
-            return {
-              ...n,
-              position: { x, y: LAYOUT_Y },
-              style: { ...n.style, width },
-              data: { ...n.data, ...statusUpdate, nodeTooltip, stepIndex },
-            }
-          }),
-        )
-      } else {
-        // No timing data — just write status badges and step indices
-        setNodes((nds) =>
-          nds.map((n) => ({
-            ...n,
-            data: {
-              ...n.data,
-              status: statusMap.get(n.id),
-              stepIndex: nodeStepIndexMap.get(n.id) ?? null,
-            },
-          })),
-        )
-      }
+      // Apply status badges to nodes without changing their positions or sizes
+      setNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          data: {
+            ...n.data,
+            status: statusMap.get(n.id),
+          },
+        })),
+      )
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred'
       setRunError(message)
@@ -683,18 +515,8 @@ export default function App() {
     }
   }
 
-  const highlightContextValue = React.useMemo(
-    () => ({
-      hoveredStepIndex,
-      selectedStepIndex,
-      setHoveredStepIndex,
-      setSelectedStepIndex,
-    }),
-    [hoveredStepIndex, selectedStepIndex],
-  )
-
   return (
-    <HighlightContext.Provider value={highlightContextValue}>
+    <>
       {/* Full viewport column: toolbar / error banner / body / result panel */}
       <div className="flex flex-col w-screen h-screen overflow-hidden bg-gray-100">
         <Toolbar onRun={handleRun} isRunDisabled={isRunDisabled} isRunning={isRunning} onLoadTemplate={handleLoadTemplate} onClear={handleClear} />
@@ -734,22 +556,20 @@ export default function App() {
                 onNodeDragStop={onNodeDragStop}
                 initialViewportRestored={viewportRestored}
                 onViewportRestored={() => setViewportRestored(true)}
-                onViewportChange={setFlowViewport}
               />
             </ReactFlowProvider>
 
             <ResizeHandle direction="vertical" onResize={handleWaveformResize} onResizeEnd={handleWaveformResizeEnd} />
             <WaveformPanel
               waveformId={simulationResult?.waveform_id ?? null}
-              steps={simulationResult?.steps ?? []}
-              viewport={flowViewport}
               panelHeight={waveformHeight}
             />
           </div>
 
-          <ResultPanel result={simulationResult} />
+          <ResizeHandle direction="horizontal" onResize={handleResultResize} onResizeEnd={handleResultResizeEnd} />
+          <ResultPanel result={simulationResult} width={resultWidth} />
         </div>
       </div>
-    </HighlightContext.Provider>
+    </>
   )
 }
