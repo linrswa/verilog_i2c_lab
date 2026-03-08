@@ -7,14 +7,20 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 export interface StepResult {
   op: string
   passed: boolean
+  // read_bytes result fields
+  data?: number[]
+  match?: boolean
+  // scan result fields
+  found?: boolean
   [key: string]: unknown
 }
 
 export interface SimulationResult {
   passed: boolean
   steps: StepResult[]
-  register_dump: Record<string, unknown>
-  waveform_id: string
+  /** 256-element array of register values (indices 0–255) */
+  register_dump: number[]
+  waveform_id?: string
 }
 
 export interface TemplateItem {
