@@ -1,9 +1,0 @@
-<testsuites name="results">
-  <testsuite name="all" package="all">
-    <property name="random_seed" value="1772948445" />
-    <testcase name="test_repeated_start_eeprom_read" classname="test_protocol" file="/Users/rswa/Dev/verilog/i2c_demo/backend/sim/tests/test_protocol.py" lineno="97" time="0.055947065353393555" sim_time_ns="42935.0" ratio_time="767421.8429295275" />
-    <testcase name="test_repeated_start_write_then_readback" classname="test_protocol" file="/Users/rswa/Dev/verilog/i2c_demo/backend/sim/tests/test_protocol.py" lineno="164" time="0.07803988456726074" sim_time_ns="60939.999" ratio_time="780882.741407405" />
-    <testcase name="test_scan_with_repeated_start" classname="test_protocol" file="/Users/rswa/Dev/verilog/i2c_demo/backend/sim/tests/test_protocol.py" lineno="232" time="0.03377389907836914" sim_time_ns="23939.998999999996" ratio_time="708831.3654413869" />
-    <testcase name="test_multi_segment_repeated_start_chain" classname="test_protocol" file="/Users/rswa/Dev/verilog/i2c_demo/backend/sim/tests/test_protocol.py" lineno="291" time="0.07289481163024902" sim_time_ns="56939.998999999996" ratio_time="781125.5386572905" />
-  </testsuite>
-</testsuites>

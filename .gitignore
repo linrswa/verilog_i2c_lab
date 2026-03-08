@@ -2,11 +2,30 @@
 .venv/
 __pycache__/
 *.pyc
+*.pyo
 *.egg-info/
+.mypy_cache/
+.pytest_cache/
 
 # Simulation build artifacts
 sim_build/
 *.vcd
+results.xml
+
+# Frontend
+node_modules/
+dist/
 
 # OS
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
