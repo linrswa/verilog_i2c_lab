@@ -574,7 +574,10 @@ export default function App() {
             />
           </ReactFlowProvider>
 
-          <WaveformPanel waveformId={simulationResult?.waveform_id ?? null} />
+          <WaveformPanel
+            waveformId={simulationResult?.waveform_id ?? null}
+            steps={simulationResult?.steps ?? []}
+          />
         </div>
 
         <ResultPanel result={simulationResult} />
