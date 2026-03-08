@@ -1,10 +1,12 @@
 import { Handle, Position, useReactFlow } from '@xyflow/react'
 import type { NodeProps, Node } from '@xyflow/react'
 import type { ChangeEvent } from 'react'
+import { validateHexAddr } from '../../lib/validate'
 
 export interface ScanNodeData {
   address: string
   expect: string
+  errors?: Record<string, string | undefined>
   [key: string]: unknown
 }
 
@@ -15,9 +17,18 @@ export function ScanNode({ id, data }: NodeProps<ScanNode>) {
 
   function updateField(field: keyof ScanNodeData, value: string) {
     setNodes((nodes) =>
-      nodes.map((n) =>
-        n.id === id ? { ...n, data: { ...n.data, [field]: value } } : n
-      )
+      nodes.map((n) => {
+        if (n.id !== id) return n
+
+        const currentData = n.data as ScanNodeData
+        const nextAddress = field === 'address' ? value : currentData.address
+
+        const errors: Record<string, string | undefined> = {
+          address: validateHexAddr(nextAddress).error,
+        }
+
+        return { ...n, data: { ...n.data, [field]: value, errors } }
+      })
     )
   }
 
@@ -28,6 +39,9 @@ export function ScanNode({ id, data }: NodeProps<ScanNode>) {
   function handleExpectChange(e: ChangeEvent<HTMLSelectElement>) {
     updateField('expect', e.target.value)
   }
+
+  const errors = (data.errors ?? {}) as Record<string, string | undefined>
+  const addressError = errors.address
 
   return (
     <div className="rounded-md border-2 border-amber-400 bg-amber-50 shadow-sm min-w-[200px]">
@@ -47,15 +61,24 @@ export function ScanNode({ id, data }: NodeProps<ScanNode>) {
       {/* Fields */}
       <div className="px-3 py-2">
         {/* Address field */}
-        <div className="flex items-center gap-1 mb-1">
-          <span className="text-xs text-gray-500 w-16 flex-shrink-0">Address</span>
-          <input
-            type="text"
-            value={data.address}
-            placeholder="0x50"
-            onChange={handleAddressChange}
-            className="flex-1 text-xs border border-gray-300 rounded px-1 py-0.5 bg-white focus:outline-none focus:border-amber-400 nodrag"
-          />
+        <div className="mb-1">
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-500 w-16 flex-shrink-0">Address</span>
+            <input
+              type="text"
+              value={data.address}
+              placeholder="0x50"
+              onChange={handleAddressChange}
+              className={`flex-1 text-xs border rounded px-1 py-0.5 bg-white focus:outline-none nodrag ${
+                addressError
+                  ? 'border-red-500 focus:border-red-500'
+                  : 'border-gray-300 focus:border-amber-400'
+              }`}
+            />
+          </div>
+          {addressError && (
+            <p className="text-xs text-red-500 ml-[68px] mt-0.5 leading-tight">{addressError}</p>
+          )}
         </div>
 
         {/* Expected result select */}

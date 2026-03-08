@@ -33,6 +33,7 @@ import {
   clearPersistedFlow,
   useFlowAutosave,
 } from './lib/useFlowPersistence'
+import { chainHasErrors } from './lib/validate'
 
 // Register all custom node types — passed to <ReactFlow nodeTypes={...}>
 const nodeTypes: NodeTypes = {
@@ -148,6 +149,18 @@ const defaultEdgeOptions = {
  */
 function hasConnectedChain(edges: Edge[]): boolean {
   return edges.length > 0
+}
+
+/**
+ * Returns true when any node in the connected chain carries validation errors.
+ * We check all nodes since we cannot cheaply compute the chain here without
+ * re-running the topological sort; checking all nodes is a safe superset.
+ */
+function nodesHaveErrors(nodes: Node[]): boolean {
+  const errorMaps = nodes.map(
+    (n) => ((n.data as Record<string, unknown>).errors ?? {}) as Record<string, string | undefined>,
+  )
+  return chainHasErrors(errorMaps)
 }
 
 // FlowCanvas is a child of ReactFlowProvider so it can safely call useReactFlow()
@@ -287,7 +300,8 @@ export default function App() {
   }, [])
 
   // Run button is enabled only when the canvas has at least one connected chain
-  const isRunDisabled = !hasConnectedChain(edges) || isRunning
+  // and no node in the connected chain carries validation errors.
+  const isRunDisabled = !hasConnectedChain(edges) || nodesHaveErrors(nodes) || isRunning
 
   async function handleLoadTemplate(templateId: string) {
     // Guard: ask for confirmation if there is already content on the canvas
