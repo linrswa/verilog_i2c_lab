@@ -10,6 +10,7 @@ from pydantic import BaseModel, field_validator
 
 from app.services.runner import QueueTimeoutError, SimulationService
 from app.services.waveform import allocate_vcd_path, vcd_path_for
+from sim.protocol_interpreter import validate_protocol_sequence
 
 router = APIRouter()
 
@@ -17,8 +18,16 @@ router = APIRouter()
 # asyncio.Lock inside SimulationService serialises concurrent calls.
 _sim_service = SimulationService()
 
-# Valid step operation names (matches Phase 1 test runner).
-_VALID_OPS = frozenset({"reset", "write_bytes", "read_bytes", "scan", "delay"})
+# Valid step operation names — legacy ops + protocol-level ops (Phase 4).
+_VALID_OPS = frozenset({
+    # Legacy high-level ops
+    "reset", "write_bytes", "read_bytes", "scan", "delay",
+    # Protocol-level ops (Phase 4)
+    "start", "stop", "repeated_start", "send_byte", "recv_byte",
+})
+
+# Protocol-level ops that participate in structural sequence validation.
+_PROTOCOL_OPS = frozenset({"start", "stop", "repeated_start", "send_byte", "recv_byte"})
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +94,19 @@ async def run_simulation(body: RunRequest) -> RunResponse:
     """
     # Convert validated Pydantic models back to plain dicts for the runner.
     raw_steps = [step.model_dump() for step in body.steps]
+
+    # Validate any protocol-level steps structurally before running.
+    # Only pass steps with protocol ops to the validator so legacy-only
+    # sequences are not needlessly checked.
+    protocol_steps = [s for s in raw_steps if s.get("op") in _PROTOCOL_OPS]
+    if protocol_steps:
+        # Validate the subsequence of protocol ops in isolation.
+        validation_errors = validate_protocol_sequence(protocol_steps)
+        if validation_errors:
+            raise HTTPException(
+                status_code=422,
+                detail={"validation_errors": validation_errors},
+            )
 
     # Allocate a UUID-named destination path in waveform storage before
     # running so we have the ID ready to include in the response.
