@@ -7,6 +7,8 @@ export interface SendByteNodeData {
   data: string
   errors?: Record<string, string | undefined>
   status?: 'ok' | 'fail'
+  warning?: string
+  addrHelper?: string
   [key: string]: unknown
 }
 
@@ -46,11 +48,13 @@ export function SendByteNode({ id, data }: NodeProps<SendByteNode>) {
   const errors = (data.errors ?? {}) as Record<string, string | undefined>
   const dataError = errors.data
   const hasError = Boolean(dataError)
-  const helperText = decodeAddressByte(data.data)
+  // addrHelper from protocol validation overrides the local decode (it reflects chain context)
+  const helperText = (data.addrHelper as string | undefined) ?? decodeAddressByte(data.data)
   const status = data.status
+  const warning = data.warning as string | undefined
 
   return (
-    <div className="rounded-md border-2 border-purple-500 bg-purple-50 shadow-sm min-w-[180px]">
+    <div className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-purple-500'} bg-purple-50 shadow-sm min-w-[180px]`}>
       {/* Input handle — top */}
       <Handle
         type="target"
@@ -60,12 +64,19 @@ export function SendByteNode({ id, data }: NodeProps<SendByteNode>) {
       />
 
       {/* Header */}
-      <div className="bg-purple-500 text-white text-xs font-semibold px-3 py-1 rounded-t flex items-center justify-between">
+      <div className={`${warning ? 'bg-yellow-400' : 'bg-purple-500'} text-white text-xs font-semibold px-3 py-1 rounded-t flex items-center justify-between`}>
         <span>Send Byte</span>
-        {status === 'ok' && (
+        {warning ? (
+          <span
+            aria-label={`warning: ${warning}`}
+            title={warning}
+            className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-yellow-600 text-white text-[10px] leading-none font-bold cursor-help"
+          >!</span>
+        ) : null}
+        {!warning && status === 'ok' && (
           <span aria-label="passed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-green-500 text-white text-[10px] leading-none font-bold">✓</span>
         )}
-        {status === 'fail' && (
+        {!warning && status === 'fail' && (
           <span aria-label="failed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] leading-none font-bold">✕</span>
         )}
       </div>
@@ -92,9 +103,14 @@ export function SendByteNode({ id, data }: NodeProps<SendByteNode>) {
           )}
         </div>
 
-        {/* Helper text: always shown when value is a valid hex byte */}
-        {helperText !== null && !hasError && (
+        {/* Helper text: decoded address from protocol validation (or local decode for standalone) */}
+        {helperText !== null && !hasError && !warning && (
           <p className="text-xs text-purple-600 italic ml-[52px] leading-tight">{helperText}</p>
+        )}
+
+        {/* Protocol warning text */}
+        {warning && (
+          <p className="text-xs text-yellow-700 font-medium leading-tight mt-1">{warning}</p>
         )}
       </div>
 

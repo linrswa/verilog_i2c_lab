@@ -6,6 +6,7 @@ export interface RecvByteNodeData {
   ack: boolean
   receivedData?: string
   status?: 'ok' | 'fail'
+  warning?: string
   [key: string]: unknown
 }
 
@@ -25,9 +26,10 @@ export function RecvByteNode({ id, data }: NodeProps<RecvByteNode>) {
   }
 
   const status = data.status
+  const warning = data.warning as string | undefined
 
   return (
-    <div className="rounded-md border-2 border-teal-500 bg-teal-50 shadow-sm min-w-[180px]">
+    <div className={`rounded-md border-2 ${warning ? 'border-yellow-400' : 'border-teal-500'} bg-teal-50 shadow-sm min-w-[180px]`}>
       {/* Input handle — top */}
       <Handle
         type="target"
@@ -37,12 +39,19 @@ export function RecvByteNode({ id, data }: NodeProps<RecvByteNode>) {
       />
 
       {/* Header */}
-      <div className="bg-teal-500 text-white text-xs font-semibold px-3 py-1 rounded-t flex items-center justify-between">
+      <div className={`${warning ? 'bg-yellow-400' : 'bg-teal-500'} text-white text-xs font-semibold px-3 py-1 rounded-t flex items-center justify-between`}>
         <span>Recv Byte</span>
-        {status === 'ok' && (
+        {warning ? (
+          <span
+            aria-label={`warning: ${warning}`}
+            title={warning}
+            className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-yellow-600 text-white text-[10px] leading-none font-bold cursor-help"
+          >!</span>
+        ) : null}
+        {!warning && status === 'ok' && (
           <span aria-label="passed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-green-500 text-white text-[10px] leading-none font-bold">✓</span>
         )}
-        {status === 'fail' && (
+        {!warning && status === 'fail' && (
           <span aria-label="failed" className="ml-1 flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] leading-none font-bold">✕</span>
         )}
       </div>
@@ -73,6 +82,11 @@ export function RecvByteNode({ id, data }: NodeProps<RecvByteNode>) {
             className="flex-1 text-xs border border-gray-200 rounded px-1 py-0.5 bg-gray-100 text-gray-400 cursor-default nodrag"
           />
         </div>
+
+        {/* Protocol warning text */}
+        {warning && (
+          <p className="text-xs text-yellow-700 font-medium leading-tight mt-1">{warning}</p>
+        )}
       </div>
 
       {/* Output handle — bottom */}

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import type { DragEvent } from 'react'
 import {
   ReactFlow,
@@ -39,6 +39,7 @@ import {
   useFlowAutosave,
 } from './lib/useFlowPersistence'
 import { chainHasErrors } from './lib/validate'
+import { validateProtocolFlow } from './lib/protocol-validate'
 
 /** Status of each step after simulation: 'ok' | 'fail', keyed by node ID. */
 type NodeStatusMap = Map<string, 'ok' | 'fail'>
@@ -302,6 +303,30 @@ export default function App() {
       }),
     )
   }, [])
+
+  // Run protocol-level validation whenever nodes or edges change.
+  // Writes `warning` and `addrHelper` fields into node.data for affected nodes.
+  // Uses a ref to track previous warning values so we only call setNodes when
+  // something actually changed (prevents infinite render loops).
+  const prevWarningsRef = React.useRef<string>('')
+  useEffect(() => {
+    const { warnings, addrHelpers } = validateProtocolFlow(nodes, edges)
+
+    // Serialise warnings to detect if anything changed
+    const serialised = JSON.stringify(
+      nodes.map((n) => ({ id: n.id, w: warnings.get(n.id), a: addrHelpers.get(n.id) })),
+    )
+    if (serialised === prevWarningsRef.current) return
+    prevWarningsRef.current = serialised
+
+    setNodes((nds) =>
+      nds.map((n) => {
+        const warning = warnings.get(n.id)
+        const addrHelper = addrHelpers.get(n.id)
+        return { ...n, data: { ...n.data, warning, addrHelper } }
+      }),
+    )
+  }, [nodes, edges])
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
