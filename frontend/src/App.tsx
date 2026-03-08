@@ -8,13 +8,14 @@ import {
   MarkerType,
   useReactFlow,
 } from '@xyflow/react'
-import type { Node, Edge, NodeTypes, NodeChange, EdgeChange, OnNodeDrag } from '@xyflow/react'
+import type { Node, Edge, NodeTypes, NodeChange, EdgeChange, OnNodeDrag, Viewport } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
 import { Toolbar } from './components/Toolbar'
 import { Sidebar } from './components/Sidebar'
 import { ResultPanel } from './components/ResultPanel'
 import { WaveformPanel } from './components/WaveformPanel'
+import type { FlowViewport } from './components/WaveformPanel'
 import {
   StartNode,
   StopNode,
@@ -198,6 +199,7 @@ function FlowCanvas({
   onNodeDragStop,
   initialViewportRestored,
   onViewportRestored,
+  onViewportChange,
 }: {
   nodes: Node[]
   edges: Edge[]
@@ -207,6 +209,7 @@ function FlowCanvas({
   onNodeDragStop: OnNodeDrag
   initialViewportRestored: boolean
   onViewportRestored: () => void
+  onViewportChange: (vp: FlowViewport) => void
 }) {
   const { setViewport, getViewport } = useReactFlow()
 
@@ -216,6 +219,8 @@ function FlowCanvas({
     const saved = loadPersistedFlow()
     if (saved?.viewport) {
       setViewport(saved.viewport)
+      // Report restored viewport immediately so WaveformPanel starts in sync
+      onViewportChange(saved.viewport)
     }
     onViewportRestored()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -223,6 +228,14 @@ function FlowCanvas({
 
   // Auto-save nodes/edges/viewport to localStorage (debounced 500 ms)
   useFlowAutosave(nodes, edges, getViewport)
+
+  /** Forward React Flow viewport changes to the parent (for WaveformPanel sync). */
+  const handleMove = useCallback(
+    (_: unknown, vp: Viewport) => {
+      onViewportChange({ x: vp.x, y: vp.y, zoom: vp.zoom })
+    },
+    [onViewportChange],
+  )
 
   return (
     <div className="flex-1 relative">
@@ -234,6 +247,7 @@ function FlowCanvas({
         onEdgesChange={onEdgesChange}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
+        onMove={handleMove}
         defaultEdgeOptions={defaultEdgeOptions}
         deleteKeyCode={['Delete', 'Backspace']}
         nodesConnectable={false}
@@ -264,6 +278,8 @@ export default function App() {
   const [runError, setRunError] = useState<string | null>(null)
   // Tracks whether FlowCanvas has already applied the saved viewport
   const [viewportRestored, setViewportRestored] = useState(false)
+  // Tracks the current React Flow viewport for WaveformPanel synchronisation
+  const [flowViewport, setFlowViewport] = useState<FlowViewport>({ x: 0, y: 0, zoom: 1 })
   // Ref to the canvas column container — used to measure width for time-based node layout
   const canvasColumnRef = useRef<HTMLDivElement>(null)
   /**
@@ -639,12 +655,14 @@ export default function App() {
               onNodeDragStop={onNodeDragStop}
               initialViewportRestored={viewportRestored}
               onViewportRestored={() => setViewportRestored(true)}
+              onViewportChange={setFlowViewport}
             />
           </ReactFlowProvider>
 
           <WaveformPanel
             waveformId={simulationResult?.waveform_id ?? null}
             steps={simulationResult?.steps ?? []}
+            viewport={flowViewport}
           />
         </div>
 

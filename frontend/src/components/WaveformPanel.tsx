@@ -88,10 +88,13 @@ interface SignalRowProps {
   svgWidth: number
 }
 
-function SignalRow({ name, changes, endTimePs, timeToX, rowIndex, svgWidth }: SignalRowProps) {
+/**
+ * Renders the fixed label column for a single signal row.
+ * This element has no viewport transform applied — it stays anchored to the
+ * left edge of the panel regardless of horizontal pan/zoom.
+ */
+function SignalRowLabel({ name, rowIndex }: { name: string; rowIndex: number }) {
   const rowTop = rowIndex * ROW_HEIGHT
-  const pathD = buildSignalPath(changes, endTimePs, timeToX, rowTop)
-
   return (
     <g>
       {/* Label background */}
@@ -117,7 +120,21 @@ function SignalRow({ name, changes, endTimePs, timeToX, rowIndex, svgWidth }: Si
       >
         {name.toUpperCase()}
       </text>
+    </g>
+  )
+}
 
+/**
+ * Renders the waveform path and grid line for a single signal row.
+ * This element is rendered inside the viewport-transformed waveform content
+ * group so it stays aligned with the React Flow canvas.
+ */
+function SignalRowContent({ changes, endTimePs, timeToX, rowIndex, svgWidth }: Omit<SignalRowProps, 'name'>) {
+  const rowTop = rowIndex * ROW_HEIGHT
+  const pathD = buildSignalPath(changes, endTimePs, timeToX, rowTop)
+
+  return (
+    <g>
       {/* Horizontal grid line */}
       <line
         x1={LABEL_WIDTH}
@@ -311,6 +328,18 @@ function StepOverlays({ steps, timeToX, svgHeight, svgWidth }: StepOverlaysProps
   )
 }
 
+// ── Viewport type ─────────────────────────────────────────────────────────────
+
+/**
+ * React Flow viewport transform: x/y pan offsets (in screen pixels) and zoom
+ * scale factor.  Mirrors the shape returned by `useViewport()`.
+ */
+export interface FlowViewport {
+  x: number
+  y: number
+  zoom: number
+}
+
 // ── WaveformPanel ─────────────────────────────────────────────────────────────
 
 interface WaveformPanelProps {
@@ -321,6 +350,14 @@ interface WaveformPanelProps {
    * will be rendered as semi-transparent overlay regions on the waveform.
    */
   steps?: StepResult[]
+  /**
+   * React Flow viewport transform used to synchronise the waveform SVG with
+   * the canvas pan/zoom state.  Only the horizontal (`x`) component and
+   * `zoom` are applied — vertical pan is independent.
+   *
+   * Defaults to `{ x: 0, y: 0, zoom: 1 }` (identity transform).
+   */
+  viewport?: FlowViewport
 }
 
 /**
@@ -331,7 +368,9 @@ interface WaveformPanelProps {
  * It sits below the ReactFlow canvas in the same flex column and is
  * collapsible via a toggle button.
  */
-export function WaveformPanel({ waveformId, steps = [] }: WaveformPanelProps) {
+const DEFAULT_VIEWPORT: FlowViewport = { x: 0, y: 0, zoom: 1 }
+
+export function WaveformPanel({ waveformId, steps = [], viewport = DEFAULT_VIEWPORT }: WaveformPanelProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [waveformData, setWaveformData] = useState<WaveformSignalsResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -531,40 +570,73 @@ export function WaveformPanel({ waveformId, steps = [] }: WaveformPanelProps) {
               </div>
             )}
 
-            {waveformData && visibleSignals.length > 0 && (
-              <svg
-                width={svgWidth}
-                height={svgHeight}
-                style={{ display: 'block', minWidth: svgWidth }}
-              >
-                {/* Background */}
-                <rect x={0} y={0} width={svgWidth} height={svgHeight} fill="#ffffff" />
+            {waveformData && visibleSignals.length > 0 && (() => {
+              // Compute the SVG transform that keeps waveform content aligned with
+              // the React Flow canvas. The label column (0..LABEL_WIDTH) is fixed;
+              // only the waveform area is shifted/scaled by the viewport.
+              //
+              // For a canvas element at position x (in canvas coords), React Flow
+              // renders it at screen x = x * zoom + viewport.x. To match this in
+              // the SVG we apply an equivalent transform to the waveform content
+              // group, scaling around the left edge of the waveform area (LABEL_WIDTH).
+              //
+              // Equivalent to: translate(LABEL_WIDTH, 0) scale(zoom) translate(-LABEL_WIDTH, 0)
+              //               + translate(viewport.x, 0)
+              // Simplified: translate(viewport.x + LABEL_WIDTH*(1 - zoom), 0) scale(zoom, 1)
+              const waveformTransform =
+                `translate(${viewport.x + LABEL_WIDTH * (1 - viewport.zoom)}, 0) scale(${viewport.zoom}, 1)`
 
-                {/* Step overlays — rendered behind signal paths */}
-                <StepOverlays
-                  steps={steps}
-                  timeToX={timeToX}
-                  svgHeight={svgHeight}
-                  svgWidth={svgWidth}
-                />
+              return (
+                <svg
+                  width={svgWidth}
+                  height={svgHeight}
+                  style={{ display: 'block', minWidth: svgWidth }}
+                >
+                  <defs>
+                    {/* Clip path prevents waveform content from bleeding into the label column */}
+                    <clipPath id="waveform-area-clip">
+                      <rect x={LABEL_WIDTH} y={0} width={svgWidth - LABEL_WIDTH} height={svgHeight} />
+                    </clipPath>
+                  </defs>
 
-                {/* Signal rows */}
-                {visibleSignals.map((signalName, rowIndex) => {
-                  const sigData = waveformData.signals[signalName]
-                  return (
-                    <SignalRow
-                      key={signalName}
-                      name={signalName}
-                      changes={sigData.changes}
-                      endTimePs={endTimePs}
+                  {/* Background */}
+                  <rect x={0} y={0} width={svgWidth} height={svgHeight} fill="#ffffff" />
+
+                  {/* Waveform content group — viewport-transformed to stay aligned with canvas */}
+                  <g transform={waveformTransform} clipPath="url(#waveform-area-clip)">
+                    {/* Step overlays — rendered behind signal paths */}
+                    <StepOverlays
+                      steps={steps}
                       timeToX={timeToX}
-                      rowIndex={rowIndex}
+                      svgHeight={svgHeight}
                       svgWidth={svgWidth}
                     />
-                  )
-                })}
-              </svg>
-            )}
+
+                    {/* Signal waveform paths and grid lines */}
+                    {visibleSignals.map((signalName, rowIndex) => {
+                      const sigData = waveformData.signals[signalName]
+                      return (
+                        <SignalRowContent
+                          key={signalName}
+                          changes={sigData.changes}
+                          endTimePs={endTimePs}
+                          timeToX={timeToX}
+                          rowIndex={rowIndex}
+                          svgWidth={svgWidth}
+                        />
+                      )
+                    })}
+                  </g>
+
+                  {/* Fixed label column — rendered on top, not affected by viewport transform */}
+                  <g>
+                    {visibleSignals.map((signalName, rowIndex) => (
+                      <SignalRowLabel key={signalName} name={signalName} rowIndex={rowIndex} />
+                    ))}
+                  </g>
+                </svg>
+              )
+            })()}
           </div>
         </>
       )}
