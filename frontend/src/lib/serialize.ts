@@ -256,9 +256,15 @@ function mapNodeToStep(node: FlowNode): StepPayload | null {
     case 'repeated_start':
       return { op: 'repeated_start' }
 
-    // US-008: SendByte and RecvByte cases will be added here by that story
-    // case 'send_byte': ...
-    // case 'recv_byte': ...
+    case 'send_byte': {
+      const d = data as SendByteData
+      return { op: 'send_byte', data: formatHex(d.data ?? '') }
+    }
+
+    case 'recv_byte': {
+      const d = data as RecvByteData
+      return { op: 'recv_byte', ack: d.ack ?? false }
+    }
 
     default:
       return null

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { serializeFlow } from './serialize'
+import { serializeFlow, serializeFlowWithOrder } from './serialize'
 import type { FlowNode, StepPayload } from './serialize'
 import type { Edge } from '@xyflow/react'
 
@@ -50,6 +50,26 @@ function scanNode(id: string, overrides?: Partial<{ address: string; expect: str
 
 function delayNode(id: string, cycles = '100'): FlowNode {
   return { id, type: 'delay', data: { cycles } }
+}
+
+function startNode(id: string): FlowNode {
+  return { id, type: 'i2c_start', data: {} }
+}
+
+function stopNode(id: string): FlowNode {
+  return { id, type: 'i2c_stop', data: {} }
+}
+
+function repeatedStartNode(id: string): FlowNode {
+  return { id, type: 'repeated_start', data: {} }
+}
+
+function sendByteNode(id: string, data = '0xA0'): FlowNode {
+  return { id, type: 'send_byte', data: { data } }
+}
+
+function recvByteNode(id: string, ack = true): FlowNode {
+  return { id, type: 'recv_byte', data: { ack } }
 }
 
 function edge(source: string, target: string): Edge {
@@ -209,5 +229,158 @@ describe('serializeFlow', () => {
     expect(result).toHaveLength(4)
     const ops = result.map((s) => s.op)
     expect(ops).toEqual(['reset', 'write_bytes', 'delay', 'read_bytes'])
+  })
+
+  // ── Protocol-level nodes ──────────────────────────────────────────────────
+
+  it('serializes a single i2c_start node', () => {
+    const result = serializeFlow([startNode('s1')], [])
+    expect(result).toEqual<StepPayload[]>([{ op: 'start' }])
+  })
+
+  it('serializes a single i2c_stop node', () => {
+    const result = serializeFlow([stopNode('s1')], [])
+    expect(result).toEqual<StepPayload[]>([{ op: 'stop' }])
+  })
+
+  it('serializes a single repeated_start node', () => {
+    const result = serializeFlow([repeatedStartNode('rs1')], [])
+    expect(result).toEqual<StepPayload[]>([{ op: 'repeated_start' }])
+  })
+
+  it('serializes a send_byte node with hex data', () => {
+    const result = serializeFlow([sendByteNode('sb1', '0xa0')], [])
+    expect(result).toEqual<StepPayload[]>([{ op: 'send_byte', data: '0xA0' }])
+  })
+
+  it('serializes a send_byte node formatting bare hex without prefix', () => {
+    const result = serializeFlow([sendByteNode('sb1', 'ff')], [])
+    expect(result).toEqual<StepPayload[]>([{ op: 'send_byte', data: '0xFF' }])
+  })
+
+  it('serializes a recv_byte node with ack=true', () => {
+    const result = serializeFlow([recvByteNode('rb1', true)], [])
+    expect(result).toEqual<StepPayload[]>([{ op: 'recv_byte', ack: true }])
+  })
+
+  it('serializes a recv_byte node with ack=false', () => {
+    const result = serializeFlow([recvByteNode('rb1', false)], [])
+    expect(result).toEqual<StepPayload[]>([{ op: 'recv_byte', ack: false }])
+  })
+
+  it('serializes a protocol-only chain: start → send_byte → recv_byte → stop', () => {
+    const nodes: FlowNode[] = [
+      startNode('n1'),
+      sendByteNode('n2', '0x50'),
+      recvByteNode('n3', true),
+      stopNode('n4'),
+    ]
+    const edges: Edge[] = [
+      edge('n1', 'n2'),
+      edge('n2', 'n3'),
+      edge('n3', 'n4'),
+    ]
+    const result = serializeFlow(nodes, edges)
+    expect(result).toHaveLength(4)
+    expect(result[0]).toEqual({ op: 'start' })
+    expect(result[1]).toEqual({ op: 'send_byte', data: '0x50' })
+    expect(result[2]).toEqual({ op: 'recv_byte', ack: true })
+    expect(result[3]).toEqual({ op: 'stop' })
+  })
+
+  it('serializes a protocol-only chain with repeated_start: start → send_byte → repeated_start → recv_byte → stop', () => {
+    const nodes: FlowNode[] = [
+      startNode('n1'),
+      sendByteNode('n2', '0xA0'),
+      repeatedStartNode('n3'),
+      recvByteNode('n4', false),
+      stopNode('n5'),
+    ]
+    const edges: Edge[] = [
+      edge('n1', 'n2'),
+      edge('n2', 'n3'),
+      edge('n3', 'n4'),
+      edge('n4', 'n5'),
+    ]
+    const result = serializeFlow(nodes, edges)
+    expect(result).toHaveLength(5)
+    const ops = result.map((s) => s.op)
+    expect(ops).toEqual(['start', 'send_byte', 'repeated_start', 'recv_byte', 'stop'])
+  })
+
+  it('serializes a mixed flow: reset → start → send_byte → stop → delay', () => {
+    const nodes: FlowNode[] = [
+      resetNode('n1'),
+      startNode('n2'),
+      sendByteNode('n3', '0xD0'),
+      stopNode('n4'),
+      delayNode('n5', '50'),
+    ]
+    const edges: Edge[] = [
+      edge('n1', 'n2'),
+      edge('n2', 'n3'),
+      edge('n3', 'n4'),
+      edge('n4', 'n5'),
+    ]
+    const result = serializeFlow(nodes, edges)
+    expect(result).toHaveLength(5)
+    expect(result[0]).toEqual({ op: 'reset' })
+    expect(result[1]).toEqual({ op: 'start' })
+    expect(result[2]).toEqual({ op: 'send_byte', data: '0xD0' })
+    expect(result[3]).toEqual({ op: 'stop' })
+    expect(result[4]).toEqual({ op: 'delay', cycles: 50 })
+  })
+
+  it('mixed flow with write and protocol nodes coexist correctly', () => {
+    const nodes: FlowNode[] = [
+      resetNode('n1'),
+      writeNode('n2', { address: '0x50', register: '0x01', data: '0xFF' }),
+      startNode('n3'),
+      sendByteNode('n4', '0xA1'),
+      recvByteNode('n5', true),
+      stopNode('n6'),
+    ]
+    const edges: Edge[] = [
+      edge('n1', 'n2'),
+      edge('n2', 'n3'),
+      edge('n3', 'n4'),
+      edge('n4', 'n5'),
+      edge('n5', 'n6'),
+    ]
+    const result = serializeFlow(nodes, edges)
+    expect(result).toHaveLength(6)
+    const ops = result.map((s) => s.op)
+    expect(ops).toEqual(['reset', 'write_bytes', 'start', 'send_byte', 'recv_byte', 'stop'])
+  })
+
+  it('handles an empty protocol section (start immediately followed by stop)', () => {
+    const nodes: FlowNode[] = [
+      startNode('n1'),
+      stopNode('n2'),
+    ]
+    const edges: Edge[] = [edge('n1', 'n2')]
+    const result = serializeFlow(nodes, edges)
+    expect(result).toHaveLength(2)
+    expect(result[0]).toEqual({ op: 'start' })
+    expect(result[1]).toEqual({ op: 'stop' })
+  })
+
+  it('serializeFlowWithOrder returns parallel node IDs and steps for protocol nodes', () => {
+    const nodes: FlowNode[] = [
+      startNode('s1'),
+      sendByteNode('sb1', '0x60'),
+      stopNode('st1'),
+    ]
+    const edges: Edge[] = [
+      edge('s1', 'sb1'),
+      edge('sb1', 'st1'),
+    ]
+    const { orderedNodeIds, steps } = serializeFlowWithOrder(nodes, edges)
+    expect(orderedNodeIds).toEqual(['s1', 'sb1', 'st1'])
+    expect(steps).toEqual([
+      { op: 'start' },
+      { op: 'send_byte', data: '0x60' },
+      { op: 'stop' },
+    ])
   })
 })
