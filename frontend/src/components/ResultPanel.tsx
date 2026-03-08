@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import type { SimulationResult, StepResult } from '../lib/api'
-import { getWaveformUrl } from '../lib/api'
 
 interface ResultPanelProps {
   result: SimulationResult | null
@@ -172,29 +171,6 @@ function StepRow({ step, index }: { step: StepResult; index: number }) {
   )
 }
 
-// ─── Download VCD button ──────────────────────────────────────────────────────
-
-function DownloadVcdButton({ waveformId }: { waveformId: string }) {
-  function handleClick() {
-    const url = getWaveformUrl(waveformId)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `${waveformId}.vcd`
-    document.body.appendChild(anchor)
-    anchor.click()
-    document.body.removeChild(anchor)
-  }
-
-  return (
-    <button
-      onClick={handleClick}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
-    >
-      Download VCD
-    </button>
-  )
-}
-
 // ─── Result panel ─────────────────────────────────────────────────────────────
 
 export function ResultPanel({ result, width }: ResultPanelProps) {
@@ -299,10 +275,6 @@ export function ResultPanel({ result, width }: ResultPanelProps) {
                   </div>
                 )}
 
-                {/* Download VCD */}
-                {result.waveform_id !== undefined && (
-                  <DownloadVcdButton waveformId={result.waveform_id} />
-                )}
               </div>
             )}
           </div>

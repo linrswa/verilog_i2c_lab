@@ -6,7 +6,9 @@ import { buildTimeToX } from '../lib/waveform'
 // ── Layout constants ──────────────────────────────────────────────────────────
 
 /** Width of the label column (left side) in pixels. */
-const LABEL_WIDTH = 60
+const DEFAULT_labelWidth = 90
+const MIN_labelWidth = 40
+const MAX_labelWidth = 300
 
 /** Height of each signal row in pixels. */
 const ROW_HEIGHT = 40
@@ -355,6 +357,30 @@ export function WaveformPanel({ waveformId, panelHeight = DEFAULT_PANEL_HEIGHT }
   const addBtnRef = useRef<HTMLButtonElement>(null)
 
 
+  // Resizable label column width
+  const [labelWidth, setLabelWidth] = useState(DEFAULT_labelWidth)
+
+  const handleLabelResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = labelWidth
+
+    function onMove(ev: MouseEvent) {
+      const newWidth = Math.min(Math.max(startWidth + ev.clientX - startX, MIN_labelWidth), MAX_labelWidth)
+      setLabelWidth(newWidth)
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [labelWidth])
+
   // Independent pan/zoom state for waveform area
   const [wvZoom, setWvZoom] = useState(1)
   const [wvPanX, setWvPanX] = useState(0)
@@ -374,7 +400,8 @@ export function WaveformPanel({ waveformId, panelHeight = DEFAULT_PANEL_HEIGHT }
   // Wheel zoom — horizontal only, centered on cursor
   const handleWheelZoom = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+    const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX
+    const factor = delta < 0 ? 1.15 : 1 / 1.15
     setWvZoom((prev) => {
       const next = Math.min(Math.max(prev * factor, 0.1), 50)
       // Adjust panX so the point under the cursor stays fixed
@@ -579,15 +606,25 @@ export function WaveformPanel({ waveformId, panelHeight = DEFAULT_PANEL_HEIGHT }
             Waveform Viewer
           </span>
           {waveformId && (
-            <a
-              href={`/surfer/index.html?load_url=${encodeURIComponent(getWaveformUrl(waveformId))}#dev`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-blue-500 hover:text-blue-700 hover:underline transition-colors"
-              title="Open VCD in Surfer waveform viewer (new tab)"
-            >
-              (open in Surfer)
-            </a>
+            <>
+              <a
+                href={`/surfer/index.html?load_url=${encodeURIComponent(getWaveformUrl(waveformId))}#dev`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-500 hover:text-blue-700 hover:underline transition-colors"
+                title="Open VCD in Surfer waveform viewer (new tab)"
+              >
+                (open in Surfer)
+              </a>
+              <a
+                href={getWaveformUrl(waveformId)}
+                download={`${waveformId}.vcd`}
+                className="text-xs text-blue-500 hover:text-blue-700 hover:underline transition-colors"
+                title="Download VCD file"
+              >
+                (download VCD)
+              </a>
+            </>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -664,14 +701,13 @@ export function WaveformPanel({ waveformId, panelHeight = DEFAULT_PANEL_HEIGHT }
                 <div
                   ref={labelColumnRef}
                   style={{
-                    width: LABEL_WIDTH,
-                    minWidth: LABEL_WIDTH,
+                    width: labelWidth,
+                    minWidth: labelWidth,
                     flexShrink: 0,
                     display: 'flex',
                     flexDirection: 'column',
-                    borderRight: '0.5px solid #e5e7eb',
                     background: '#f9fafb',
-                    zIndex: 5,
+                    zIndex: 10,
                     overflow: 'hidden',
                   }}
                 >
@@ -740,6 +776,20 @@ export function WaveformPanel({ waveformId, panelHeight = DEFAULT_PANEL_HEIGHT }
                   </div>
                 </div>
 
+                {/* Resize handle for label column */}
+                <div
+                  onMouseDown={handleLabelResize}
+                  style={{
+                    width: 4,
+                    cursor: 'col-resize',
+                    background: 'transparent',
+                    flexShrink: 0,
+                    zIndex: 10,
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#93c5fd' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                />
+
                 {/* Floating ghost during drag */}
                 {dragFrom !== null && visibleSignals[dragFrom] && (
                   <div
@@ -747,7 +797,7 @@ export function WaveformPanel({ waveformId, panelHeight = DEFAULT_PANEL_HEIGHT }
                       position: 'fixed',
                       left: dragMouseX - 20,
                       top: dragMouseY - ROW_HEIGHT / 2,
-                      width: LABEL_WIDTH,
+                      width: labelWidth,
                       height: ROW_HEIGHT,
                       display: 'flex',
                       alignItems: 'center',
@@ -775,7 +825,7 @@ export function WaveformPanel({ waveformId, panelHeight = DEFAULT_PANEL_HEIGHT }
                 {/* SVG waveform area — independent pan/zoom */}
                 <div
                   ref={svgAreaRef}
-                  style={{ flex: 1, overflow: 'hidden', cursor: 'grab' }}
+                  style={{ flex: 1, overflow: 'hidden', cursor: 'grab', position: 'relative', zIndex: 1 }}
                   onWheel={handleWheelZoom}
                   onMouseDown={handlePanStart}
                 >

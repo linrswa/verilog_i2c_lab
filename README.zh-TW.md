@@ -10,6 +10,7 @@
 - [快速開始](#快速開始)
 - [專案結構](#專案結構)
 - [前端介面](#前端介面)
+- [波形檢視器](#波形檢視器)
 - [後端 API](#後端-api)
 - [模擬引擎](#模擬引擎)
 - [RTL 硬體設計](#rtl-硬體設計)
@@ -19,40 +20,46 @@
 
 本專案讓使用者可以：
 
-1. **視覺化建構** I2C 協議序列 — 在 React Flow 畫布上拖拉節點、連線，組成完整的 I2C 通訊流程
+1. **視覺化建構** I2C 協議序列 — 在 React Flow 畫布上拖拉節點，組成完整的 I2C 通訊流程
 2. **即時模擬執行** — 將序列送至後端，透過 cocotb 驅動 Icarus Verilog 進行 RTL 級模擬
-3. **觀察結果** — 檢視每個步驟的執行結果、Slave 暫存器內容、以及產生的 VCD 波形檔
+3. **波形檢視** — 內建 SVG 波形檢視器，即時顯示 SDA/SCL 訊號，並支援以 Surfer 開啟完整波形
+4. **觀察結果** — 檢視每個步驟的執行結果、Slave 暫存器內容、EEPROM hex grid
 
 適合用於 I2C 協議學習、RTL 設計驗證、或作為硬體模擬平台的參考實作。
 
 ## 系統架構
 
 ```
-┌─────────────────────────────────┐
-│         Frontend (React)        │
-│   React Flow 畫布 + 節點面板     │
-│   拖拉建構 I2C 協議序列          │
-└──────────────┬──────────────────┘
-               │ HTTP API (JSON)
-               ▼
-┌─────────────────────────────────┐
-│       Backend (FastAPI)         │
-│   接收序列 → 驗證 → 排程模擬     │
-└──────────────┬──────────────────┘
-               │ subprocess
-               ▼
-┌─────────────────────────────────┐
-│     Simulation (cocotb 2.0)     │
-│  Protocol Interpreter → Driver  │
-│  驅動 Icarus Verilog RTL 模擬   │
-└──────────────┬──────────────────┘
-               │
-               ▼
-┌─────────────────────────────────┐
-│      RTL (Verilog)              │
-│  I2C Master + I2C Slave         │
-│  Open-drain Bus + 256B 暫存器   │
-└─────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│            Frontend (React)              │
+│  ┌──────┬───────────────┬──────────────┐ │
+│  │Sidebar│  React Flow   │ Result Panel │ │
+│  │節點面板│  畫布 (垂直排列) │  步驟結果    │ │
+│  ├──────┴───────────────┴──────────────┤ │
+│  │        WaveformPanel (SVG)          │ │
+│  │   SDA/SCL 波形 + 步驟區段疊加層      │ │
+│  └─────────────────────────────────────┘ │
+└──────────────────┬───────────────────────┘
+                   │ HTTP API (JSON)
+                   ▼
+┌──────────────────────────────────────────┐
+│          Backend (FastAPI)               │
+│   接收序列 → 驗證 → 排程模擬 → VCD 解析  │
+└──────────────────┬───────────────────────┘
+                   │ subprocess
+                   ▼
+┌──────────────────────────────────────────┐
+│        Simulation (cocotb 2.0)           │
+│  Protocol Interpreter → Driver           │
+│  per-step timing 記錄 → 波形對齊          │
+└──────────────────┬───────────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────────┐
+│           RTL (Verilog)                  │
+│   I2C Master + I2C Slave                 │
+│   Open-drain Bus + 256B 暫存器           │
+└──────────────────────────────────────────┘
 ```
 
 ## 技術堆疊
@@ -104,8 +111,10 @@ i2c_demo/
 ├── backend/
 │   ├── app/                    # FastAPI 應用
 │   │   ├── main.py             # 應用入口、中介層、生命週期管理
-│   │   ├── routes.py           # API 路由定義
-│   │   └── services.py         # 模擬執行服務（子程序管理）
+│   │   ├── routes/             # API 路由
+│   │   │   ├── simulation.py   # 模擬執行與波形 API
+│   │   │   └── templates.py    # 範本 API
+│   │   └── services/           # 服務層（模擬執行、VCD 解析）
 │   ├── sim/                    # cocotb 模擬程式碼
 │   │   ├── test_runner.py      # cocotb 測試入口
 │   │   ├── i2c_driver.py       # I2C 交易級驅動程式
@@ -117,18 +126,25 @@ i2c_demo/
 │   │   ├── tb/                 # Testbench
 │   │   │   └── tb_i2c_top.v    # cocotb 測試用 wrapper
 │   │   └── templates/          # 預建測試範本
-│   │       ├── basic_write_read.json
-│   │       ├── repeated_start_read.json
-│   │       ├── full_test.json
-│   │       └── stress_test.json
 │   └── tests/                  # 後端測試
 ├── frontend/
 │   └── src/
-│       ├── App.tsx             # 主應用（React Flow 畫布）
+│       ├── App.tsx             # 主應用（React Flow 畫布 + 佈局管理）
 │       ├── components/
-│       │   ├── Sidebar.tsx     # 節點面板（Protocol Primitives）
-│       │   └── ResultPanel.tsx # 右側結果面板（步驟結果 + EEPROM）
-│       └── nodes/              # 自訂 React Flow 節點（協議級）
+│       │   ├── Sidebar.tsx      # 節點面板（拖拉 + 點擊新增）
+│       │   ├── ResultPanel.tsx  # 結果面板（步驟結果 + EEPROM）
+│       │   ├── WaveformPanel.tsx # SVG 波形檢視器
+│       │   ├── Toolbar.tsx      # 工具列（執行、範本選擇）
+│       │   ├── TemplateDropdown.tsx # 範本下拉選單
+│       │   ├── ResizeHandle.tsx # 可拖曳面板分隔線
+│       │   └── nodes/           # 自訂 React Flow 節點
+│       └── lib/                 # 工具函式庫
+│           ├── api.ts           # 後端 API 呼叫
+│           ├── serialize.ts     # Flow → 步驟序列化
+│           ├── waveform.ts      # 波形佈局常數與工具
+│           ├── validate.ts      # 連線驗證
+│           ├── protocol-validate.ts # 協議層級驗證
+│           └── useFlowPersistence.ts # 畫布狀態持久化
 ├── pyproject.toml              # Python 專案設定
 └── CLAUDE.md                   # Claude Code 開發指引
 ```
@@ -139,9 +155,13 @@ i2c_demo/
 
 前端使用 [React Flow](https://reactflow.dev/) 提供視覺化的協議序列編輯器：
 
-- **拖拉節點**：從左側面板拖曳操作節點到畫布上
-- **連線**：從節點的輸出端點拖曳到下一個節點的輸入端點，建立執行順序
+- **拖拉新增**：從左側面板拖曳操作節點到畫布上
+- **點擊新增**：點擊左側面板項目，自動附加到序列尾端
+- **拖曳排序**：拖曳節點可重新排列順序（含 ghost 視覺效果）
+- **垂直佈局**：節點自動以垂直方式排列，模擬後自動重新對齊
 - **設定參數**：點擊節點可設定位址、資料等參數
+- **可調面板**：側邊欄、結果面板、波形面板皆可拖曳調整大小
+- **狀態持久化**：畫布狀態自動儲存至 localStorage，重新載入不遺失
 - **執行模擬**：點擊「Run」送出序列至後端執行
 
 ### 節點類型
@@ -164,7 +184,17 @@ i2c_demo/
 - 每個步驟的執行結果（TX/RX 位元組、ACK/NACK 狀態、地址解碼）
 - Slave 目前的 register pointer 位置（橘色高亮標示）
 - Slave EEPROM 的 256-byte 完整內容（16×16 hex grid，寫入過的 cell 高亮）
-- VCD 波形檔下載連結
+
+### 波形檢視器
+
+模擬完成後，底部波形面板自動顯示訊號波形：
+
+- **內建 SVG 渲染**：直接在畫面中顯示 SDA、SCL 等訊號波形
+- **訊號選擇器**：可搜尋並勾選要顯示的訊號
+- **步驟區段疊加**：波形上方疊加每個步驟的時間區段，含 per-byte 時間戳
+- **平移與縮放**：滑鼠拖曳平移、滾輪縮放，獨立於畫布操作
+- **可調標籤寬度**：拖曳訊號標籤欄分隔線調整寬度
+- **Surfer 整合**：點擊連結可在新分頁以 Surfer（WASM 波形檢視器）開啟完整 VCD
 
 ## 後端 API
 
@@ -174,6 +204,7 @@ i2c_demo/
 | `/api/templates` | GET | 列出可用測試範本 |
 | `/api/templates/{name}` | GET | 取得特定範本內容 |
 | `/api/waveform/{id}` | GET | 下載 VCD 波形檔 |
+| `/api/waveform/{id}/signals` | GET | 取得 VCD 訊號資料（解析後的 JSON） |
 | `/api/health` | GET | 健康檢查 |
 
 ### 執行模擬範例
@@ -212,7 +243,8 @@ curl -X POST http://localhost:8000/api/run \
 3. `protocol_interpreter.py` 將步驟轉換為 I2C 交易
 4. `i2c_driver.py` 透過 cocotb 驅動 Verilog testbench 中的訊號
 5. Icarus Verilog 執行 RTL 模擬，產生波形與結果
-6. 結果以 JSON 回傳前端
+6. 結果（含 per-step timing）以 JSON 回傳前端
+7. 前端可透過 `/api/waveform/{id}/signals` 取得解析後的 VCD 訊號資料，渲染波形
 
 ### 並行控制
 
