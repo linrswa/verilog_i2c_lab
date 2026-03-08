@@ -8,12 +8,13 @@ import {
   MarkerType,
   useReactFlow,
 } from '@xyflow/react'
-import type { Node, Edge, NodeTypes, NodeChange, EdgeChange, NodeDragHandler } from '@xyflow/react'
+import type { Node, Edge, NodeTypes, NodeChange, EdgeChange, OnNodeDrag } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
 import { Toolbar } from './components/Toolbar'
 import { Sidebar } from './components/Sidebar'
 import { ResultPanel } from './components/ResultPanel'
+import { WaveformPanel } from './components/WaveformPanel'
 import {
   StartNode,
   StopNode,
@@ -188,8 +189,8 @@ function FlowCanvas({
   edges: Edge[]
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
-  onNodeDrag: NodeDragHandler
-  onNodeDragStop: NodeDragHandler
+  onNodeDrag: OnNodeDrag
+  onNodeDragStop: OnNodeDrag
   initialViewportRestored: boolean
   onViewportRestored: () => void
 }) {
@@ -355,7 +356,7 @@ export default function App() {
    * can only move horizontally. This mutates the nodes state in-place via
    * setNodes so React Flow re-renders at the clamped position.
    */
-  const onNodeDrag: NodeDragHandler = useCallback((_event, draggedNode) => {
+  const onNodeDrag: OnNodeDrag = useCallback((_event, draggedNode) => {
     setNodes((nds) =>
       nds.map((n) =>
         n.id === draggedNode.id
@@ -370,7 +371,7 @@ export default function App() {
    * enforce START-first / STOP-last constraints, reorder the nodes array, then
    * re-apply horizontal layout and rebuild edges.
    */
-  const onNodeDragStop: NodeDragHandler = useCallback((_event, draggedNode) => {
+  const onNodeDragStop: OnNodeDrag = useCallback((_event, draggedNode) => {
     setNodes((nds) => {
       // Find the dragged node's current index and its node type
       const draggedIdx = nds.findIndex((n) => n.id === draggedNode.id)
@@ -557,19 +558,24 @@ export default function App() {
       <div className="flex flex-row flex-1 overflow-hidden">
         <Sidebar onAddNode={handleAppendNode} />
 
-        {/* ReactFlowProvider enables useReactFlow() inside FlowCanvas */}
-        <ReactFlowProvider>
-          <FlowCanvas
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onNodeDrag={onNodeDrag}
-            onNodeDragStop={onNodeDragStop}
-            initialViewportRestored={viewportRestored}
-            onViewportRestored={() => setViewportRestored(true)}
-          />
-        </ReactFlowProvider>
+        {/* Canvas column: ReactFlow canvas on top, WaveformPanel below */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {/* ReactFlowProvider enables useReactFlow() inside FlowCanvas */}
+          <ReactFlowProvider>
+            <FlowCanvas
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeDrag={onNodeDrag}
+              onNodeDragStop={onNodeDragStop}
+              initialViewportRestored={viewportRestored}
+              onViewportRestored={() => setViewportRestored(true)}
+            />
+          </ReactFlowProvider>
+
+          <WaveformPanel waveformId={simulationResult?.waveform_id ?? null} />
+        </div>
 
         <ResultPanel result={simulationResult} />
       </div>
