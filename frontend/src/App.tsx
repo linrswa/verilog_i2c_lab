@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { DragEvent } from 'react'
 import {
   ReactFlow,
@@ -27,6 +27,11 @@ import {
 import { serializeFlow } from './lib/serialize'
 import { runSimulation } from './lib/api'
 import type { SimulationResult } from './lib/api'
+import {
+  loadPersistedFlow,
+  clearPersistedFlow,
+  useFlowAutosave,
+} from './lib/useFlowPersistence'
 
 // Register all custom node types — passed to <ReactFlow nodeTypes={...}>
 const nodeTypes: NodeTypes = {
@@ -78,14 +83,32 @@ function FlowCanvas({
   onNodesChange,
   onEdgesChange,
   onConnect,
+  initialViewportRestored,
+  onViewportRestored,
 }: {
   nodes: Node[]
   edges: Edge[]
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
   onConnect: (connection: Connection) => void
+  initialViewportRestored: boolean
+  onViewportRestored: () => void
 }) {
-  const { screenToFlowPosition, setNodes } = useReactFlow()
+  const { screenToFlowPosition, setNodes, setViewport, getViewport } = useReactFlow()
+
+  // Restore saved viewport once — on first mount, after ReactFlow has initialised
+  useEffect(() => {
+    if (initialViewportRestored) return
+    const saved = loadPersistedFlow()
+    if (saved?.viewport) {
+      setViewport(saved.viewport)
+    }
+    onViewportRestored()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Auto-save nodes/edges/viewport to localStorage (debounced 500 ms)
+  useFlowAutosave(nodes, edges, getViewport)
 
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -132,7 +155,7 @@ function FlowCanvas({
         onConnect={onConnect}
         defaultEdgeOptions={defaultEdgeOptions}
         deleteKeyCode={['Delete', 'Backspace']}
-        fitView
+        fitView={!loadPersistedFlow()}
       >
         <Background />
         <Controls />
@@ -142,11 +165,14 @@ function FlowCanvas({
 }
 
 export default function App() {
-  const [nodes, setNodes] = useState<Node[]>([])
-  const [edges, setEdges] = useState<Edge[]>([])
+  // Initialise nodes/edges from localStorage on first mount only (lazy initializer)
+  const [nodes, setNodes] = useState<Node[]>(() => loadPersistedFlow()?.nodes ?? [])
+  const [edges, setEdges] = useState<Edge[]>(() => loadPersistedFlow()?.edges ?? [])
   const [isRunning, setIsRunning] = useState(false)
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
+  // Tracks whether FlowCanvas has already applied the saved viewport
+  const [viewportRestored, setViewportRestored] = useState(false)
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
@@ -177,6 +203,15 @@ export default function App() {
     [],
   )
 
+  // Clear button: reset canvas state and remove persisted flow
+  const handleClear = useCallback(() => {
+    setNodes([])
+    setEdges([])
+    clearPersistedFlow()
+    setSimulationResult(null)
+    setRunError(null)
+  }, [])
+
   // Run button is enabled only when the canvas has at least one connected chain
   const isRunDisabled = !hasConnectedChain(edges) || isRunning
 
@@ -201,7 +236,7 @@ export default function App() {
   return (
     // Full viewport column: toolbar / error banner / body / result panel
     <div className="flex flex-col w-screen h-screen overflow-hidden bg-gray-100">
-      <Toolbar onRun={handleRun} isRunDisabled={isRunDisabled} isRunning={isRunning} />
+      <Toolbar onRun={handleRun} isRunDisabled={isRunDisabled} isRunning={isRunning} onClear={handleClear} />
 
       {/* Inline error banner — shown below toolbar when a run fails */}
       {runError !== null && (
@@ -232,6 +267,8 @@ export default function App() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            initialViewportRestored={viewportRestored}
+            onViewportRestored={() => setViewportRestored(true)}
           />
         </ReactFlowProvider>
       </div>

@@ -2,14 +2,21 @@ interface ToolbarProps {
   onRun: () => void
   isRunDisabled: boolean
   isRunning: boolean
+  onClear: () => void
 }
 
-export function Toolbar({ onRun, isRunDisabled, isRunning }: ToolbarProps) {
+export function Toolbar({ onRun, isRunDisabled, isRunning, onClear }: ToolbarProps) {
   return (
     <header className="flex items-center gap-3 px-4 py-2 bg-white border-b border-gray-200 shadow-sm flex-shrink-0">
       <span className="text-base font-bold text-gray-800 tracking-tight mr-auto">
         I2C Demo
       </span>
+      <button
+        onClick={onClear}
+        className="px-4 py-1.5 rounded-md text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+      >
+        Clear
+      </button>
       <button
         onClick={onRun}
         disabled={isRunDisabled || isRunning}
