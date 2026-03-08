@@ -4,11 +4,12 @@ import shutil
 import uuid as _uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 
 from app.services.runner import QueueTimeoutError, SimulationService
+from app.services.vcd_parser import parse_vcd
 from app.services.waveform import allocate_vcd_path, vcd_path_for
 from sim.protocol_interpreter import validate_protocol_sequence
 
@@ -74,6 +75,21 @@ class RunResponse(BaseModel):
     reg_pointer: int
     waveform_id: str
     sim_time_total_ps: Optional[int]
+
+
+class SignalData(BaseModel):
+    """Metadata and change list for a single VCD signal."""
+
+    width: int
+    changes: list[list[Any]]
+
+
+class WaveformSignalsResponse(BaseModel):
+    """GET /api/waveform/{waveform_id}/signals response."""
+
+    timescale: str
+    end_time: int
+    signals: dict[str, SignalData]
 
 
 # ---------------------------------------------------------------------------
@@ -177,4 +193,59 @@ async def download_waveform(waveform_id: str) -> FileResponse:
         media_type="application/octet-stream",
         filename=f"{waveform_id}.vcd",
         headers={"Content-Disposition": f'attachment; filename="{waveform_id}.vcd"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/waveform/{waveform_id}/signals
+# ---------------------------------------------------------------------------
+
+
+@router.get("/waveform/{waveform_id}/signals", response_model=WaveformSignalsResponse)
+async def get_waveform_signals(
+    waveform_id: str,
+    signals: Optional[str] = Query(
+        default=None,
+        description="Comma-separated signal names to include. Omit to return all signals.",
+    ),
+) -> WaveformSignalsResponse:
+    """Return parsed VCD signal data for the specified waveform.
+
+    The optional ``signals`` query parameter accepts a comma-separated list of
+    signal leaf-names (e.g. ``signals=scl,sda``).  When omitted, all signals
+    present in the VCD are returned.
+
+    Error responses:
+    - ``404`` — waveform_id not found or VCD file has been cleaned up
+    - ``400`` — one or more requested signal names do not exist in the VCD
+    """
+    # Validate UUID format to prevent path traversal.
+    try:
+        _uuid.UUID(waveform_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Waveform not found")
+
+    vcd_path = vcd_path_for(waveform_id)
+    if not vcd_path.exists():
+        raise HTTPException(status_code=404, detail="Waveform not found")
+
+    # Parse the requested signal names from the query string.
+    signal_names: Optional[list[str]] = None
+    if signals is not None:
+        signal_names = [s.strip() for s in signals.split(",") if s.strip()]
+
+    try:
+        parsed = parse_vcd(vcd_path, signal_names)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Waveform not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return WaveformSignalsResponse(
+        timescale=parsed["timescale"],
+        end_time=parsed["end_time"],
+        signals={
+            name: SignalData(width=data["width"], changes=data["changes"])
+            for name, data in parsed["signals"].items()
+        },
     )
