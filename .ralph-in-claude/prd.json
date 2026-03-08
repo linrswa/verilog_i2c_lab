@@ -1,259 +1,216 @@
 {
-  "project": "I2C Demo — Phase 3 React Flow Frontend",
-  "branchName": "ralph/phase3-react-flow-frontend",
+  "project": "I2C Demo — Phase 4 Protocol-Level Primitives",
+  "branchName": "ralph/phase4-protocol-primitives",
   "baseBranch": "main",
-  "sourcePrd": ".ralph-in-claude/tasks/prd-phase3-react-flow-frontend.md",
-  "description": "Build a React Flow-based frontend where users drag-and-drop I2C test nodes onto a canvas, connect them to define execution order, serialize the graph to JSON, and run simulations via the Phase 2 FastAPI backend.",
+  "sourcePrd": ".ralph-in-claude/tasks/prd-phase4-protocol-level-primitives.md",
+  "description": "Refactor the I2C simulation stack to protocol-level primitives (start, stop, repeated_start, send_byte, recv_byte). Add a ProtocolInterpreter that groups protocol steps into master transactions, expose new ops through the backend API, and add 5 new low-level nodes to the React Flow frontend.",
   "conflictStrategy": "optimistic",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Project Setup with Bun + Vite + React + TypeScript",
-      "description": "As a developer, I want a properly configured frontend project so that I can start building components.",
+      "title": "Protocol Step Interpreter",
+      "description": "As a developer, I want a protocol step interpreter in the driver layer so that protocol-level step sequences can be translated into master transactions.",
       "acceptanceCriteria": [
-        "frontend/ directory created with Bun + Vite using React + TypeScript template",
-        "Tailwind CSS v4 installed and configured (utility classes work in components)",
-        "React Flow (@xyflow/react) installed as dependency",
-        "bun dev starts the dev server without errors",
-        "bun run build produces a production build without errors",
-        "TypeScript strict mode enabled in tsconfig.json",
-        "Typecheck passes"
+        "New class ProtocolInterpreter in backend/sim/protocol_interpreter.py",
+        "interpret(steps) method groups protocol steps into Transaction dataclass list",
+        "Grouping rules: start begins group, first send_byte is addr+RW byte (LSB=RW), subsequent send_bytes are data, recv_byte collects read bytes with ack param, repeated_start ends group with repeated_start=true, stop ends group with repeated_start=false",
+        "Transaction dataclass with fields: addr (int), rw (0=write, 1=read), data_bytes (list[int]), read_count (int), repeated_start (bool)",
+        "Raises ValueError for invalid sequences (send_byte without start, recv_byte in write mode, etc.)",
+        "Unit tests (pytest, no cocotb): write sequence, read sequence, write-then-read with repeated start, validation errors",
+        "Typecheck passes (mypy)"
       ],
       "dependsOn": [],
-      "sharedFiles": [
-        { "file": "frontend/package.json", "conflictType": "append-only", "reason": "Created here, later stories may add deps" },
-        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Created here, US-002 will restructure it" }
-      ],
+      "sharedFiles": [],
       "priority": 1,
       "passes": false,
-      "notes": "Use `bun create vite frontend --template react-ts`. Install deps: `bun add @xyflow/react`, `bun add -D tailwindcss @tailwindcss/vite`. For Tailwind v4, add the Vite plugin to vite.config.ts and import tailwindcss in the main CSS file."
+      "notes": "The RTL master is transaction-based: START + ADDR + N data bytes + STOP/REPEATED_START as one atomic op. The interpreter must group protocol-level steps into these transactions.\n\nAddress byte convention: first send_byte after start is addr+RW. Bits [7:1] = 7-bit slave addr, Bit [0] = RW (0=write, 1=read). Example: 0xA0 = addr 0x50 write, 0xA1 = addr 0x50 read.\n\nGrouping example:\n  start → send_byte(0xA0) → send_byte(0x10) → repeated_start → send_byte(0xA1) → recv_byte(ACK) → recv_byte(NACK) → stop\n  → Transaction 1: addr=0x50, rw=WRITE, data=[0x10], repeated_start=true\n  → Transaction 2: addr=0x50, rw=READ, read_count=2, repeated_start=false\n\nMaster hardware constraint: num_bytes is 4-bit (max 15). Write max = 14 data bytes (1 slot for reg pointer). Read max = 15 bytes. The interpreter should handle chunking for long sequences."
     },
     {
       "id": "US-002",
-      "title": "Application Shell & Layout",
-      "description": "As a user, I want a structured layout with distinct panels so that I can see all parts of the interface at once.",
+      "title": "Driver Execute Transaction List",
+      "description": "As a developer, I want the I2CDriver to execute a list of Transaction objects so that interpreted protocol steps can run on the hardware.",
       "acceptanceCriteria": [
-        "Three-panel layout: left sidebar (node palette ~200px), center (React Flow canvas, flex-grow), bottom (result panel)",
-        "Sidebar displays the 5 node types (Reset, Write, Read, Scan, Delay) as draggable items with labels and color accents",
-        "Result panel is collapsible and starts collapsed (show/hide toggle)",
-        "A top toolbar area with a Run button (disabled state initially)",
-        "Layout fills the full viewport height and width",
-        "Typecheck passes",
-        "Verify in browser: all panels render correctly at 1280x800 minimum"
+        "New method I2CDriver.execute_transactions(txns: list[Transaction]) -> list[TxnResult]",
+        "For write transactions: drives slave_addr_in, rw=0, num_bytes, data_in, repeated_start_in — reuses existing payload-feeding logic",
+        "For read transactions: drives slave_addr_in, rw=1, num_bytes, repeated_start_in — reuses existing data_valid capture logic",
+        "repeated_start_in set to 1 when txn.repeated_start is True",
+        "TxnResult dataclass: ack_ok (bool), data_read (list[int]), bytes_written (int)",
+        "Existing write_bytes/read_bytes/scan methods remain unchanged and functional",
+        "Typecheck passes (mypy)"
       ],
       "dependsOn": ["US-001"],
       "sharedFiles": [
-        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Main layout component" }
+        { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "Adding new execute_transactions method and importing Transaction/TxnResult" }
       ],
       "priority": 2,
       "passes": false,
-      "notes": "Create components: Sidebar.tsx, Toolbar.tsx, ResultPanel.tsx. Use flexbox layout: row for sidebar+canvas, column wrapper for toolbar on top and result panel on bottom. Sidebar items should set HTML5 drag data (dataTransfer) with the node type string. React Flow canvas is a placeholder ReactFlow component with empty nodes/edges for now."
+      "notes": "Key DUT signals: slave_addr_in, rw, num_bytes, data_in, repeated_start_in, start, busy, done, ack_error, data_out, data_valid, byte_count.\n\nExtract the payload-feeding logic from write_bytes (lines 143-246) and the data_valid capture from read_bytes (lines 293-359) into internal helpers that execute_transactions can reuse. The repeated_start_in signal on line 90/158/301 is currently always set to 0 — this is the signal to drive.\n\nInter-transaction gap: use ClockCycles(dut.clk, 10) between transactions, UNLESS the previous transaction ended with repeated_start (in that case, no gap — the master transitions directly to the next START)."
     },
     {
       "id": "US-003",
-      "title": "Custom Node Components",
-      "description": "As a user, I want distinct visual nodes for each I2C operation so that I can identify them on the canvas.",
+      "title": "Cocotb Tests for Repeated Start",
+      "description": "As a developer, I want cocotb tests that exercise repeated start sequences so that I can verify the RTL + driver work correctly end-to-end.",
       "acceptanceCriteria": [
-        "ResetNode — displays 'Reset' label, no editable parameters, one output handle (bottom)",
-        "WriteNode — displays inline fields for address (hex input), register (hex input), data (comma-separated hex bytes input); one input handle (top), one output handle (bottom)",
-        "ReadNode — displays inline fields for address (hex), register (hex), byte count n (number), optional expected data (comma-separated hex); one input handle (top), one output handle (bottom)",
-        "ScanNode — displays inline field for address (hex), optional expected result (true/false select); one input handle (top), one output handle (bottom)",
-        "DelayNode — displays inline field for cycle count (integer input); one input handle (top), one output handle (bottom)",
-        "Each node type has a distinct border/header color for quick visual identification",
-        "Node parameters are editable directly on the node via controlled inputs that update node.data",
-        "Typecheck passes",
-        "Verify in browser: all 5 node types render with correct fields"
+        "New test file backend/sim/tests/test_protocol.py",
+        "Test: write register pointer (1 byte) → repeated start → read N bytes (classic EEPROM pattern)",
+        "Test: write data → repeated start → read back same data (verify register contents match)",
+        "Test: scan via write with repeated start (addr probe without STOP)",
+        "Test: multi-segment repeated start chain (write → RS → read → RS → write → STOP)",
+        "All tests use ProtocolInterpreter + I2CDriver.execute_transactions()",
+        "All tests pass with cocotb + Icarus Verilog",
+        "Verify via register dump that data integrity is maintained across repeated start sequences"
       ],
       "dependsOn": ["US-002"],
       "sharedFiles": [],
       "priority": 3,
       "passes": false,
-      "notes": "Create files in frontend/src/components/nodes/: ResetNode.tsx, WriteNode.tsx, ReadNode.tsx, ScanNode.tsx, DelayNode.tsx. Register all node types in a nodeTypes map passed to ReactFlow. Use React Flow's Handle component for input/output handles (Position.Top for input, Position.Bottom for output). Store parameters in node.data and use useReactFlow().setNodes to update on input change. Suggested colors: Reset=slate, Write=blue, Read=green, Scan=amber, Delay=purple."
+      "notes": "Run tests with: cd backend/sim && python -m pytest tests/test_protocol.py (cocotb runner pattern, same as test_i2c_cocotb.py).\n\nThe verilog_practice/I2C/i2c_master_tb.v has a repeated_start_test task (lines 332-374) as reference for expected behavior.\n\nKey test pattern — classic EEPROM read:\n  1. Start → send_byte(0xA0) → send_byte(reg_addr) → repeated_start\n  2. send_byte(0xA1) → recv_byte(ACK) → recv_byte(NACK) → stop\n  3. Verify read data matches what was written to reg_addr\n\nThe slave's in_read_ack_window fix (already in i2c_demo RTL) prevents false STOP detection during read ACK phase, which is critical for repeated start reliability."
     },
     {
       "id": "US-004",
-      "title": "Drag-and-Drop from Sidebar to Canvas",
-      "description": "As a user, I want to drag node types from the sidebar onto the canvas so that I can build test sequences visually.",
+      "title": "Protocol-Level Step Ops in Test Runner",
+      "description": "As a developer, I want the test_runner to support protocol-level ops so that JSON test sequences can use fine-grained I2C steps.",
       "acceptanceCriteria": [
-        "Dragging a node type from the sidebar and dropping it on the canvas creates a new node instance of that type",
-        "The new node appears at the drop position with default parameter values",
-        "Default values: address=0x50, register=0x00, data=[], n=1, cycles=100",
-        "Multiple instances of the same node type can be added",
-        "Nodes can be repositioned on the canvas after placement",
-        "Typecheck passes",
-        "Verify in browser: drag-and-drop works smoothly"
+        "New ops in test_runner.py parse_step()/execute_step(): start (no params), stop (no params), repeated_start (no params), send_byte (data: int|hex-string), recv_byte (ack: bool)",
+        "Protocol steps are buffered until stop is encountered, then passed to ProtocolInterpreter.interpret() and executed via execute_transactions()",
+        "Each send_byte/recv_byte within a start..stop block gets its own result entry with status ok/fail and relevant data",
+        "Existing ops (reset, write_bytes, read_bytes, scan, delay) continue to work unchanged",
+        "Typecheck passes (mypy)"
       ],
       "dependsOn": ["US-003"],
       "sharedFiles": [
-        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Add onDragOver/onDrop handlers to ReactFlow wrapper" }
+        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "Adding new op parsing and protocol buffering logic to parse_step/execute_step" }
       ],
       "priority": 4,
       "passes": false,
-      "notes": "Implement onDragOver (preventDefault + set dropEffect) and onDrop handlers on the ReactFlow wrapper component. In onDrop: get node type from dataTransfer, use reactFlowInstance.screenToFlowPosition() to convert drop coordinates, create new node with unique ID (e.g., `${type}-${Date.now()}`), add to nodes state. Sidebar items should use onDragStart to set dataTransfer.setData('application/reactflow', nodeType)."
+      "notes": "Buffering strategy: when execute_step encounters op='start', it enters protocol-buffering mode. Subsequent steps (send_byte, recv_byte, repeated_start) are collected into a buffer. When op='stop' is encountered, the full buffer is passed to ProtocolInterpreter.interpret(), then I2CDriver.execute_transactions(). Results are mapped back: each send_byte/recv_byte gets its own step result.\n\nJSON example:\n  {\"steps\": [\n    {\"op\": \"reset\"},\n    {\"op\": \"start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA0\"},\n    {\"op\": \"send_byte\", \"data\": \"0x10\"},\n    {\"op\": \"repeated_start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA1\"},\n    {\"op\": \"recv_byte\", \"ack\": true},\n    {\"op\": \"recv_byte\", \"ack\": false},\n    {\"op\": \"stop\"}\n  ]}\n\nThe execute_step function will need a stateful context (or modify execute_sequence) to handle buffering across multiple step calls."
     },
     {
       "id": "US-005",
-      "title": "Node Connection & Edge Management",
-      "description": "As a user, I want to connect nodes with edges to define execution order so that I can create sequential test flows.",
+      "title": "Protocol Sequence Validation",
+      "description": "As a developer, I want protocol step sequences to be validated before execution so that malformed sequences produce clear error messages.",
       "acceptanceCriteria": [
-        "Dragging from an output handle to an input handle creates a directed edge",
-        "Edges render as smoothstep type with animated markerEnd arrows",
-        "Each output handle allows only one outgoing edge (enforced via onConnect validation)",
-        "Each input handle allows only one incoming edge (enforced via onConnect validation)",
-        "Edges can be deleted by selecting and pressing Delete/Backspace",
-        "Nodes can be deleted by selecting and pressing Delete/Backspace",
-        "Typecheck passes",
-        "Verify in browser: connections form correctly and deletions work"
+        "Validation function validate_protocol_sequence(steps) -> list[str] in protocol_interpreter.py",
+        "Validates: every start has a matching stop or repeated_start before next start",
+        "Validates: send_byte/recv_byte only appear between start and stop/repeated_start",
+        "Validates: first send_byte after start is a valid address byte (0x00-0xFF)",
+        "Validates: recv_byte only in read mode (address byte LSB=1)",
+        "Validates: send_byte (after address byte) only in write mode (address byte LSB=0)",
+        "Returns list of human-readable error strings (empty = valid)",
+        "Backend returns 422 with validation errors if protocol sequence is invalid",
+        "Unit tests for each validation rule",
+        "Typecheck passes (mypy)"
       ],
-      "dependsOn": ["US-004"],
+      "dependsOn": ["US-001"],
       "sharedFiles": [
-        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Add onConnect, onEdgesDelete, onNodesDelete handlers" }
+        { "file": "backend/sim/protocol_interpreter.py", "conflictType": "append-only", "reason": "Adding validate_protocol_sequence function to existing module" }
       ],
-      "priority": 5,
+      "priority": 4,
       "passes": false,
-      "notes": "Use React Flow's onConnect callback. Before adding an edge, check that the source node doesn't already have an outgoing edge and the target node doesn't already have an incoming edge — if so, replace the existing edge. Set defaultEdgeOptions with type='smoothstep' and markerEnd={type: MarkerType.ArrowClosed}. Use onNodesDelete and onEdgesDelete for delete key handling (React Flow handles this automatically when deleteKeyCode is set)."
+      "notes": "This can run in parallel with US-004 since US-005 only adds a validation function to protocol_interpreter.py (append-only) while US-004 modifies test_runner.py.\n\nValidation should be called in the backend route handler (backend/app/routes/simulation.py) before passing steps to the test runner. If validation fails, return HTTP 422 with the error list.\n\nEdge cases to validate:\n- Empty sequence (no start/stop) → valid (just means no protocol steps)\n- start immediately followed by stop → invalid (no address byte)\n- Multiple starts without stop → invalid\n- recv_byte after send_byte(addr+W) → invalid (wrong mode)\n- send_byte after send_byte(addr+R) → invalid (should be recv_byte in read mode)"
     },
     {
       "id": "US-006",
-      "title": "Flow-to-JSON Serialization",
-      "description": "As a developer, I want to convert the React Flow graph into the backend's JSON step format so that I can submit it for simulation.",
+      "title": "Integration Test — Protocol Sequences via API",
+      "description": "As a developer, I want to verify protocol-level sequences work end-to-end through the FastAPI backend.",
       "acceptanceCriteria": [
-        "frontend/src/lib/serialize.ts exports a function serializeFlow(nodes, edges) that returns an array of step objects",
-        "Performs topological sort on the directed graph to determine execution order",
-        "Disconnected nodes are excluded — only the longest connected chain starting from a root node (no incoming edges) is serialized",
-        "Each node maps to its corresponding step format: reset={op:'reset'}, write={op:'write_bytes',addr,reg,data}, read={op:'read_bytes',addr,reg,n,expect?}, scan={op:'scan',addr,expect?}, delay={op:'delay',cycles}",
-        "Hex string values are formatted as '0x' prefix (e.g., '0x50', '0xA5')",
-        "Unit tests pass for: linear chain, single node, empty canvas, disconnected nodes filtering",
-        "Typecheck passes"
+        "New template JSON: backend/sim/templates/repeated_start_read.json — write register pointer → repeated start → read pattern",
+        "Test: POST /api/run with protocol-level steps returns correct results",
+        "Test: POST /api/run with mixed protocol + legacy ops in same sequence works",
+        "Test: POST /api/run with invalid protocol sequence returns 422 with error details",
+        "All tests pass"
       ],
-      "dependsOn": ["US-003"],
+      "dependsOn": ["US-004", "US-005"],
       "sharedFiles": [],
-      "priority": 3,
+      "priority": 5,
       "passes": false,
-      "notes": "Topological sort: build adjacency list from edges, find root nodes (no incoming edges), BFS/DFS from the root. If multiple roots exist, pick the longest chain. Map node.type + node.data to the backend step format. For write/read/scan nodes, format addr and reg as hex strings. For write data and read expect, split comma-separated input and format each as hex string. Tests: use vitest (add as dev dependency), test file at frontend/src/lib/serialize.test.ts."
+      "notes": "Template JSON for repeated_start_read.json:\n  {\"name\": \"Repeated Start Read\", \"description\": \"Write register pointer then read via repeated start\", \"steps\": [\n    {\"op\": \"reset\"},\n    {\"op\": \"write_bytes\", \"addr\": \"0x50\", \"reg\": \"0x00\", \"data\": [\"0xDE\", \"0xAD\"]},\n    {\"op\": \"start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA0\"},\n    {\"op\": \"send_byte\", \"data\": \"0x00\"},\n    {\"op\": \"repeated_start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA1\"},\n    {\"op\": \"recv_byte\", \"ack\": true},\n    {\"op\": \"recv_byte\", \"ack\": false},\n    {\"op\": \"stop\"}\n  ]}\n\nMixed test: combine legacy write_bytes with protocol-level read via repeated start in one sequence."
     },
     {
       "id": "US-007",
-      "title": "API Client & Run Execution",
-      "description": "As a user, I want to click Run to execute my test flow and see results so that I can validate my I2C sequences.",
+      "title": "Protocol Control Nodes (Start, Stop, RepeatedStart)",
+      "description": "As a user, I want Start, Stop, and RepeatedStart nodes on the canvas so that I can control I2C bus protocol flow.",
       "acceptanceCriteria": [
-        "frontend/src/lib/api.ts exports functions: runSimulation(steps), fetchTemplates(), getWaveformUrl(id)",
-        "API base URL is configurable via VITE_API_URL env var (defaults to http://localhost:8000/api)",
-        "Run button in toolbar is enabled only when canvas has at least one connected chain (2+ nodes connected by edge)",
-        "Clicking Run serializes the flow, calls POST /api/run, and shows a loading spinner on the button",
-        "On success, simulation result is stored in app state for ResultPanel to display",
-        "On error (422/500/503), an inline error banner is shown below the toolbar with the error message",
-        "Error banner can be dismissed",
+        "StartNode — displays 'START' label, green accent, one output handle (bottom), no input handle",
+        "StopNode — displays 'STOP' label, red accent, one input handle (top), no output handle",
+        "RepeatedStartNode — displays 'Sr' label, orange accent, one input handle (top), one output handle (bottom)",
+        "All three registered in nodeTypes map in frontend/src/components/nodes/index.ts",
+        "Sidebar updated with new 'Protocol' section showing these 3 node types as draggable items",
         "Typecheck passes",
-        "Verify in browser: Run button triggers API call and shows loading state"
+        "Verify in browser: all 3 nodes render correctly with handles"
       ],
-      "dependsOn": ["US-005", "US-006"],
+      "dependsOn": [],
       "sharedFiles": [
-        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Wire up Run button click handler with serialize + API call + state management" }
+        { "file": "frontend/src/components/nodes/index.ts", "conflictType": "append-only", "reason": "Registering new node types in nodeTypes map" },
+        { "file": "frontend/src/components/Sidebar.tsx", "conflictType": "structural-modify", "reason": "Adding Protocol section to sidebar layout" }
       ],
-      "priority": 6,
+      "priority": 1,
       "passes": false,
-      "notes": "Use fetch() for API calls (no need for axios). API client pattern: const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'. Store simulation result in React state (useState<SimulationResult | null>). Pass result down to ResultPanel. For Vite dev proxy alternative: add proxy config in vite.config.ts to forward /api to localhost:8000."
+      "notes": "Create StartNode.tsx, StopNode.tsx, RepeatedStartNode.tsx in frontend/src/components/nodes/.\n\nSidebar layout update: add a divider and 'Protocol' section header below the existing 5 Basic node types. Sidebar items use HTML5 dataTransfer with node type string.\n\nNode type strings: 'i2c_start', 'i2c_stop', 'repeated_start'. Use 'i2c_start'/'i2c_stop' to avoid conflict with any React Flow internal 'start'/'stop' strings.\n\nStartNode is similar to ResetNode (no params, just label + output handle). StopNode is similar but input handle only. RepeatedStartNode has both handles.\n\nColors: Start=emerald/green, Stop=rose/red, RepeatedStart=orange/amber."
     },
     {
       "id": "US-008",
-      "title": "Result Panel — Step Results & Register Dump",
-      "description": "As a user, I want to see detailed execution results so that I can verify my I2C test passed or failed.",
+      "title": "Data Transfer Nodes (SendByte, RecvByte)",
+      "description": "As a user, I want SendByte and RecvByte nodes so that I can specify individual bytes in an I2C transaction.",
       "acceptanceCriteria": [
-        "Result panel auto-expands when simulation results are available",
-        "Shows overall pass/fail status with green (pass) or red (fail) color indicator and text",
-        "Each step is listed with: step index, operation name, status (ok/fail), and relevant details",
-        "For read_bytes steps: shows returned data array and match result (pass/fail vs expected)",
-        "For scan steps: shows found status and match result",
-        "Failed steps are highlighted with red background",
-        "Register dump section shows a formatted hex table (address: value) of the 256-byte register file",
-        "A 'Download VCD' button triggers waveform file download via GET /api/waveform/{waveform_id}",
+        "SendByteNode — inline hex input for byte value (0x00-0xFF), purple accent, input handle (top), output handle (bottom)",
+        "SendByteNode displays auto-computed helper text when value looks like address byte: 'Addr: 0x{byte>>1} {R/W}'",
+        "RecvByteNode — ACK/NACK toggle (select), teal accent, input handle (top), output handle (bottom), read-only data field shown after simulation",
+        "Both registered in nodeTypes map",
+        "Sidebar Protocol section updated with these 2 node types",
+        "Default values: SendByte data=0xA0, RecvByte ack=true",
+        "Validation: SendByte data must be valid hex 0x00-0xFF",
         "Typecheck passes",
-        "Verify in browser: results display correctly for both pass and fail scenarios"
+        "Verify in browser: both nodes render with correct fields"
       ],
       "dependsOn": ["US-007"],
-      "sharedFiles": [],
-      "priority": 7,
+      "sharedFiles": [
+        { "file": "frontend/src/components/nodes/index.ts", "conflictType": "append-only", "reason": "Registering SendByte and RecvByte node types" },
+        { "file": "frontend/src/components/Sidebar.tsx", "conflictType": "append-only", "reason": "Adding 2 more items to Protocol section" }
+      ],
+      "priority": 2,
       "passes": false,
-      "notes": "ResultPanel receives simulation result as prop. Register dump: display as a grid of 16 columns x 16 rows (256 bytes). Download VCD: use window.open() or create an <a> tag with the waveform URL from api.ts getWaveformUrl(). Show 'No results yet' message when result is null."
+      "notes": "Create SendByteNode.tsx and RecvByteNode.tsx in frontend/src/components/nodes/.\n\nNode type strings: 'send_byte', 'recv_byte'.\n\nSendByteNode helper text logic: parse the hex value, if it's a plausible address byte (any valid hex), show decoded addr and R/W. Example: input '0xA0' → 'Addr: 0x50 W', input '0xA1' → 'Addr: 0x50 R'. This is always shown as helper text (the user decides if it's actually an address byte based on position in chain).\n\nRecvByteNode: the 'data' field is read-only and populated after simulation via node.data.receivedData (set by the status overlay logic in US-009's pattern). For now, just show an empty read-only field with placeholder 'After sim'.\n\nUse existing validate.ts pattern: validateHexByte(v) for SendByte validation. Add 'nodrag' class on inputs."
     },
     {
       "id": "US-009",
-      "title": "Node Status Overlay",
-      "description": "As a user, I want to see pass/fail status on each node after execution so that I can quickly identify which step failed.",
+      "title": "Serialization for Protocol-Level Nodes",
+      "description": "As a developer, I want the flow serializer to handle protocol-level nodes so that protocol sequences can be sent to the backend.",
       "acceptanceCriteria": [
-        "After simulation completes, each node in the executed chain shows a small status badge (green checkmark for ok, red X for fail)",
-        "Status is mapped by step index to the corresponding node in the serialized topological order",
-        "Status badges clear when the flow is modified (node added/removed/parameter edited, edge added/removed)",
-        "Typecheck passes",
-        "Verify in browser: status badges appear on nodes after running a simulation and clear on edit"
+        "serializeFlow updated to map: i2c_start→{op:'start'}, i2c_stop→{op:'stop'}, repeated_start→{op:'repeated_start'}, send_byte→{op:'send_byte',data:'0xNN'}, recv_byte→{op:'recv_byte',ack:bool}",
+        "Mixed flows with legacy + protocol nodes serialize correctly",
+        "Protocol nodes can coexist with legacy nodes in same flow (e.g., Reset → Start → SendByte → ... → Stop → Delay)",
+        "Unit tests: protocol-only chain, mixed chain, empty protocol section",
+        "Typecheck passes"
       ],
-      "dependsOn": ["US-007"],
+      "dependsOn": ["US-008"],
       "sharedFiles": [
-        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Add status state management and clear-on-edit logic" }
+        { "file": "frontend/src/lib/serialize.ts", "conflictType": "structural-modify", "reason": "Adding new node type cases to mapNodeToStep switch" }
       ],
-      "priority": 7,
+      "priority": 3,
       "passes": false,
-      "notes": "Store step results in a Map<nodeId, 'ok' | 'fail'> state. After simulation, map the serialized node order to step results. Pass status to each node via node.data.status. In custom node components, render a small badge based on data.status. Clear the status map in onNodesChange, onEdgesChange, and when node data changes."
+      "notes": "Update mapNodeToStep() in serialize.ts to handle the 5 new node types. The switch statement currently handles: reset, write, read, scan, delay. Add cases for: i2c_start, i2c_stop, repeated_start, send_byte, recv_byte.\n\nSendByte serialization: {op: 'send_byte', data: formatHex(node.data.data)}\nRecvByte serialization: {op: 'recv_byte', ack: node.data.ack}\nStart/Stop/RepeatedStart: just {op: '<name>'}, no additional fields.\n\nUpdate serialize.test.ts with new test cases. The serializeFlowWithOrder function should also work with the new types."
     },
     {
       "id": "US-010",
-      "title": "Template Loading",
-      "description": "As a user, I want to load pre-built test templates so that I can quickly start with common test patterns.",
+      "title": "Protocol Sequence Visual Indicators",
+      "description": "As a user, I want visual feedback about protocol sequence validity on the canvas so that I can see errors before running.",
       "acceptanceCriteria": [
-        "A 'Templates' dropdown button in the toolbar lists templates fetched from GET /api/templates",
-        "Template list shows template name and description",
-        "Selecting a template fetches full template via GET /api/templates/{id} and populates the canvas with corresponding nodes and edges",
-        "Template steps are auto-positioned in a vertical chain (spaced evenly, ~120px apart vertically)",
-        "Loading a template shows a confirmation dialog if the canvas is not empty ('Replace current flow?')",
+        "Start and Stop nodes show warning icon if unpaired (Start without Stop in chain, or vice versa)",
+        "SendByte/RecvByte nodes show warning if not between Start and Stop in the chain",
+        "First SendByte after Start shows decoded address + R/W direction as helper text",
+        "RecvByte shows warning if used in write mode (address byte LSB=0)",
+        "Validation runs on every flow change and results stored in node.data.warning",
         "Typecheck passes",
-        "Verify in browser: templates load and display correctly on canvas"
+        "Verify in browser: warnings appear for invalid protocol sequences"
       ],
-      "dependsOn": ["US-007"],
-      "sharedFiles": [],
-      "priority": 7,
-      "passes": false,
-      "notes": "Fetch templates on component mount or on dropdown open. To convert template steps to nodes: iterate steps, create a node for each step with appropriate type and data, position at (250, i * 120), create edges connecting sequential nodes. Use the same node type mapping as serialize.ts but in reverse (op -> node type). Template dropdown can be a simple div with absolute positioning, no need for a modal library."
-    },
-    {
-      "id": "US-011",
-      "title": "localStorage Flow Persistence",
-      "description": "As a user, I want my flow to persist across page refreshes so that I don't lose my work.",
-      "acceptanceCriteria": [
-        "Current flow (nodes array, edges array, viewport transform) is auto-saved to localStorage on every change",
-        "On page load, saved flow is restored from localStorage if present",
-        "A 'Clear' button in the toolbar resets the canvas to empty and clears localStorage",
-        "Saved data is stored under the key 'i2c-demo-flow'",
-        "Typecheck passes",
-        "Verify in browser: refresh preserves the flow; Clear button removes it"
-      ],
-      "dependsOn": ["US-005"],
+      "dependsOn": ["US-009"],
       "sharedFiles": [
-        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Add localStorage save/restore logic and Clear button" }
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Adding protocol validation logic that runs on flow change and updates node.data.warning" }
       ],
-      "priority": 6,
+      "priority": 4,
       "passes": false,
-      "notes": "Use useEffect to save to localStorage when nodes/edges change (debounce with setTimeout ~500ms to avoid excessive writes). On mount, read from localStorage and set initial nodes/edges/viewport. Use ReactFlow's onMoveEnd or fitView for viewport restore. Store as JSON: {nodes, edges, viewport}. Clear button: setNodes([]), setEdges([]), localStorage.removeItem('i2c-demo-flow')."
-    },
-    {
-      "id": "US-012",
-      "title": "Input Validation & UX Polish",
-      "description": "As a user, I want clear feedback when I enter invalid parameters so that I can fix issues before running.",
-      "acceptanceCriteria": [
-        "Address fields validate hex format in range 0x00-0x7F (7-bit I2C address)",
-        "Register fields validate hex format in range 0x00-0xFF",
-        "Data fields validate as comma-separated hex bytes (each 0x00-0xFF)",
-        "Cycle count validates as positive integer (> 0)",
-        "Invalid fields show a red border and brief inline error text below the input",
-        "Run button is disabled if any node in the connected chain has validation errors",
-        "Typecheck passes",
-        "Verify in browser: validation errors display correctly for invalid inputs"
-      ],
-      "dependsOn": ["US-003", "US-007"],
-      "sharedFiles": [],
-      "priority": 8,
-      "passes": false,
-      "notes": "Create a shared validation utility (frontend/src/lib/validate.ts) with functions: validateHexAddr(v), validateHexReg(v), validateHexDataList(v), validatePositiveInt(v). Each returns {valid: boolean, error?: string}. Call validators in node components on input change, store validation state in node.data.errors. In the Run handler, check all nodes for errors before serializing. Add 'nodrag' class to input elements inside nodes to prevent drag when interacting with form fields."
+      "notes": "Create a validateProtocolFlow(nodes, edges) function in frontend/src/lib/validate.ts (or a new protocol-validate.ts). This walks the serialized chain and checks:\n1. Every i2c_start has a matching i2c_stop (or chain ends)\n2. send_byte/recv_byte only between i2c_start and i2c_stop\n3. After i2c_start, first send_byte is address byte — decode and show R/W\n4. recv_byte only valid when address byte LSB=1 (read mode)\n5. send_byte (after addr) only valid when address byte LSB=0 (write mode)\n\nStore warnings in node.data.warning (string or null). Node components should render a yellow warning icon + tooltip when data.warning is truthy.\n\nCall validateProtocolFlow in FlowCanvas whenever nodes/edges change (same pattern as existing validation). Clear warnings when flow changes."
     }
   ]
 }

@@ -1,20 +1,141 @@
 {
-  "status": "running",
+  "status": "completed",
   "conflictStrategy": "optimistic",
-  "currentWave": 1,
+  "currentWave": 8,
   "workers": [
     {
       "storyId": "US-001",
       "storyTitle": "Project Setup with Bun + Vite + React + TypeScript",
-      "status": "running",
+      "status": "completed",
       "mode": "direct",
       "worktreeBranch": null,
       "worktreePath": null,
       "startedAt": "2026-03-08T07:41:51+0800",
-      "completedAt": null,
+      "completedAt": "2026-03-08T07:42:30+0800",
+      "retryCount": 0
+    },
+    {
+      "storyId": "US-002",
+      "storyTitle": "Application Shell & Layout",
+      "status": "completed",
+      "mode": "direct",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-08T07:43:00+0800",
+      "completedAt": "2026-03-08T07:45:00+0800",
+      "retryCount": 0
+    },
+    {
+      "storyId": "US-003",
+      "storyTitle": "Custom Node Components",
+      "status": "completed",
+      "mode": "direct",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-08T07:45:00+0800",
+      "completedAt": "2026-03-08T07:48:00+0800",
+      "retryCount": 0
+    },
+    {
+      "storyId": "US-004",
+      "storyTitle": "Drag-and-Drop from Sidebar to Canvas",
+      "status": "completed",
+      "mode": "worktree",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-08T07:48:00+0800",
+      "completedAt": "2026-03-08T07:55:00+0800",
+      "retryCount": 0
+    },
+    {
+      "storyId": "US-006",
+      "storyTitle": "Flow-to-JSON Serialization",
+      "status": "completed",
+      "mode": "worktree",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-08T07:48:00+0800",
+      "completedAt": "2026-03-08T07:55:00+0800",
+      "retryCount": 0
+    },
+    {
+      "storyId": "US-005",
+      "storyTitle": "Node Connection & Edge Management",
+      "status": "completed",
+      "mode": "direct",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-08T07:55:00+0800",
+      "completedAt": "2026-03-08T07:58:00+0800",
+      "retryCount": 0
+    },
+    {
+      "storyId": "US-007",
+      "storyTitle": "API Client & Run Execution",
+      "status": "completed",
+      "mode": "direct",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-08T07:58:00+0800",
+      "completedAt": "2026-03-08T08:02:00+0800",
+      "retryCount": 0
+    },
+    {
+      "storyId": "US-008",
+      "storyTitle": "Result Panel — Step Results & Register Dump",
+      "status": "completed",
+      "mode": "worktree",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-08T08:02:00+0800",
+      "completedAt": "2026-03-08T08:10:00+0800",
+      "retryCount": 0
+    },
+    {
+      "storyId": "US-010",
+      "storyTitle": "Template Loading",
+      "status": "completed",
+      "mode": "worktree",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-08T08:02:00+0800",
+      "completedAt": "2026-03-08T08:10:00+0800",
+      "retryCount": 0
+    },
+    {
+      "storyId": "US-011",
+      "storyTitle": "localStorage Flow Persistence",
+      "status": "completed",
+      "mode": "worktree",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-08T08:02:00+0800",
+      "completedAt": "2026-03-08T08:12:00+0800",
+      "retryCount": 0
+    },
+    {
+      "storyId": "US-012",
+      "storyTitle": "Input Validation & UX Polish",
+      "status": "completed",
+      "mode": "worktree",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-08T08:02:00+0800",
+      "completedAt": "2026-03-08T08:12:00+0800",
+      "retryCount": 0
+    },
+    {
+      "storyId": "US-009",
+      "storyTitle": "Node Status Overlay",
+      "status": "completed",
+      "mode": "direct",
+      "worktreeBranch": null,
+      "worktreePath": null,
+      "startedAt": "2026-03-08T08:15:00+0800",
+      "completedAt": "2026-03-08T08:13:50+0800",
       "retryCount": 0
     }
   ],
   "failedStories": {},
-  "lastUpdated": "2026-03-08T07:41:51+0800"
+  "lastUpdated": "2026-03-08T08:13:50+0800"
 }
