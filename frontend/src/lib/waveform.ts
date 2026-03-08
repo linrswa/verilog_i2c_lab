@@ -30,10 +30,17 @@
 export const NODE_WIDTH = 160
 
 /** Horizontal gap between consecutive nodes in pixels (pre-simulation). */
-export const GAP = 40
+export const GAP = 80
 
 /** Fixed y-coordinate for all nodes in the horizontal pipeline layout. */
 export const LAYOUT_Y = 200
+
+/**
+ * Width of the waveform label column in pixels.  Exported so that the node
+ * layout (App.tsx) can offset nodes by the same amount, ensuring that node
+ * x-positions and waveform x-positions share the same coordinate origin.
+ */
+export const LABEL_WIDTH = 60
 
 // ── Time-to-pixel conversion ─────────────────────────────────────────────────
 

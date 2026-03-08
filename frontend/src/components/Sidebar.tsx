@@ -35,13 +35,14 @@ function NodePaletteItem({ type, label, color, description, onAdd }: NodePalette
 
 interface SidebarProps {
   onAddNode: (type: string) => void
+  width: number
 }
 
-export function Sidebar({ onAddNode }: SidebarProps) {
+export function Sidebar({ onAddNode, width }: SidebarProps) {
   return (
     <aside
-      style={{ width: '200px', minWidth: '200px' }}
-      className="flex flex-col border-r border-gray-200 bg-gray-50 p-3 gap-2 overflow-y-auto"
+      style={{ width: `${width}px`, minWidth: '120px' }}
+      className="flex flex-col border-r border-gray-200 bg-gray-50 p-3 gap-2 overflow-y-auto flex-shrink-0"
     >
       <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
         Protocol

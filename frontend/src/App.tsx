@@ -13,6 +13,7 @@ import '@xyflow/react/dist/style.css'
 
 import { Toolbar } from './components/Toolbar'
 import { Sidebar } from './components/Sidebar'
+import { ResizeHandle } from './components/ResizeHandle'
 import { ResultPanel } from './components/ResultPanel'
 import { WaveformPanel } from './components/WaveformPanel'
 import type { FlowViewport } from './components/WaveformPanel'
@@ -34,7 +35,7 @@ import {
 } from './lib/useFlowPersistence'
 import { chainHasErrors } from './lib/validate'
 import { validateProtocolFlow } from './lib/protocol-validate'
-import { buildTimeToX, NODE_WIDTH as WAVEFORM_NODE_WIDTH, GAP as WAVEFORM_GAP, LAYOUT_Y as WAVEFORM_LAYOUT_Y } from './lib/waveform'
+import { buildTimeToX, NODE_WIDTH as WAVEFORM_NODE_WIDTH, GAP as WAVEFORM_GAP, LAYOUT_Y as WAVEFORM_LAYOUT_Y, LABEL_WIDTH as WAVEFORM_LABEL_WIDTH } from './lib/waveform'
 import { HighlightContext } from './lib/highlightContext'
 
 /** Status of each step after simulation: 'ok' | 'fail', keyed by node ID. */
@@ -45,6 +46,8 @@ type NodeStatusMap = Map<string, 'ok' | 'fail'>
 const NODE_WIDTH = WAVEFORM_NODE_WIDTH
 const GAP = WAVEFORM_GAP
 const LAYOUT_Y = WAVEFORM_LAYOUT_Y
+/** Offset applied to all node x-positions so they align with the waveform label column. */
+const X_OFFSET = WAVEFORM_LABEL_WIDTH
 
 /**
  * Apply horizontal auto-layout: all nodes share the same y-coordinate and
@@ -64,7 +67,7 @@ function applyHorizontalLayout(nodes: Node[]): Node[] {
     const { nodeTooltip: _removedTooltip, stepIndex: _removedStepIndex, ...dataWithoutTooltip } = node.data as Record<string, unknown>
     return {
       ...node,
-      position: { x: i * (NODE_WIDTH + GAP), y: LAYOUT_Y },
+      position: { x: X_OFFSET + i * (NODE_WIDTH + GAP), y: LAYOUT_Y },
       style: Object.keys(styleWithoutWidth).length > 0 ? styleWithoutWidth as React.CSSProperties : undefined,
       data: dataWithoutTooltip,
     }
@@ -292,6 +295,28 @@ export default function App() {
   const [flowViewport, setFlowViewport] = useState<FlowViewport>({ x: 0, y: 0, zoom: 1 })
   // Ref to the canvas column container — used to measure width for time-based node layout
   const canvasColumnRef = useRef<HTMLDivElement>(null)
+  // Resizable pane sizes
+  const [sidebarWidth, setSidebarWidth] = useState(200)
+  const sidebarWidthRef = useRef(200)
+  const [waveformHeight, setWaveformHeight] = useState(220)
+  const waveformHeightRef = useRef(220)
+
+  const handleSidebarResize = useCallback((delta: number) => {
+    setSidebarWidth(Math.max(120, Math.min(400, sidebarWidthRef.current + delta)))
+  }, [])
+  const handleSidebarResizeEnd = useCallback(() => {
+    // Read latest value via functional updater to avoid stale closure
+    setSidebarWidth((w) => { sidebarWidthRef.current = w; return w })
+  }, [])
+
+  const handleWaveformResize = useCallback((delta: number) => {
+    // Negative delta = dragging up = making panel taller
+    setWaveformHeight(Math.max(120, Math.min(600, waveformHeightRef.current - delta)))
+  }, [])
+  const handleWaveformResizeEnd = useCallback(() => {
+    setWaveformHeight((h) => { waveformHeightRef.current = h; return h })
+  }, [])
+
   // Cross-highlighting state: which waveform step is hovered/selected
   const [hoveredStepIndex, setHoveredStepIndex] = useState<number | null>(null)
   const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null)
@@ -610,7 +635,8 @@ export default function App() {
       const canvasWidthPx = canvasColumnRef.current?.clientWidth ?? 1200
 
       if (totalDurationPs > 0 && nodeTimeRangeMap.size > 0) {
-        const timeToX = buildTimeToX({ totalDurationPs, canvasWidthPx })
+        // Offset by LABEL_WIDTH so nodes align with the waveform content area
+        const timeToX = buildTimeToX({ totalDurationPs, canvasWidthPx: canvasWidthPx - X_OFFSET, originOffsetPx: X_OFFSET })
 
         setNodes((nds) =>
           nds.map((n) => {
@@ -692,7 +718,8 @@ export default function App() {
 
         {/* Main body: sidebar + canvas + result panel */}
         <div className="flex flex-row flex-1 overflow-hidden">
-          <Sidebar onAddNode={handleAppendNode} />
+          <Sidebar onAddNode={handleAppendNode} width={sidebarWidth} />
+          <ResizeHandle direction="horizontal" onResize={handleSidebarResize} onResizeEnd={handleSidebarResizeEnd} />
 
           {/* Canvas column: ReactFlow canvas on top, WaveformPanel below */}
           <div ref={canvasColumnRef} className="flex flex-col flex-1 overflow-hidden">
@@ -711,10 +738,12 @@ export default function App() {
               />
             </ReactFlowProvider>
 
+            <ResizeHandle direction="vertical" onResize={handleWaveformResize} onResizeEnd={handleWaveformResizeEnd} />
             <WaveformPanel
               waveformId={simulationResult?.waveform_id ?? null}
               steps={simulationResult?.steps ?? []}
               viewport={flowViewport}
+              panelHeight={waveformHeight}
             />
           </div>
 
