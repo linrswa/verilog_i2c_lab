@@ -19,6 +19,8 @@ const PROTOCOL_NODE_TYPES: NodeType[] = [
   { type: 'i2c_start', label: 'START', color: '#10b981', description: 'I2C Start condition' },
   { type: 'i2c_stop', label: 'STOP', color: '#f43f5e', description: 'I2C Stop condition' },
   { type: 'repeated_start', label: 'Sr (Repeated Start)', color: '#f97316', description: 'I2C Repeated Start condition' },
+  { type: 'send_byte', label: 'Send Byte', color: '#a855f7', description: 'Send a raw byte on the I2C bus' },
+  { type: 'recv_byte', label: 'Recv Byte', color: '#14b8a6', description: 'Receive a byte from the I2C bus' },
 ]
 
 function handleDragStart(event: DragEvent<HTMLDivElement>, nodeType: string) {
