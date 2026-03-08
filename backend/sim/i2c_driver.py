@@ -13,7 +13,7 @@ DUT signal map (i2c_system_wrapper):
 import cocotb
 from cocotb.triggers import RisingEdge, ClockCycles
 
-from sim.protocol_interpreter import Transaction, TxnResult
+from protocol_interpreter import Transaction, TxnResult
 
 
 # Number of clock cycles to wait after de-asserting reset before the DUT is

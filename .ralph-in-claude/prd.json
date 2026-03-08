@@ -22,7 +22,7 @@
       "dependsOn": [],
       "sharedFiles": [],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "The RTL master is transaction-based: START + ADDR + N data bytes + STOP/REPEATED_START as one atomic op. The interpreter must group protocol-level steps into these transactions.\n\nAddress byte convention: first send_byte after start is addr+RW. Bits [7:1] = 7-bit slave addr, Bit [0] = RW (0=write, 1=read). Example: 0xA0 = addr 0x50 write, 0xA1 = addr 0x50 read.\n\nGrouping example:\n  start → send_byte(0xA0) → send_byte(0x10) → repeated_start → send_byte(0xA1) → recv_byte(ACK) → recv_byte(NACK) → stop\n  → Transaction 1: addr=0x50, rw=WRITE, data=[0x10], repeated_start=true\n  → Transaction 2: addr=0x50, rw=READ, read_count=2, repeated_start=false\n\nMaster hardware constraint: num_bytes is 4-bit (max 15). Write max = 14 data bytes (1 slot for reg pointer). Read max = 15 bytes. The interpreter should handle chunking for long sequences."
     },
     {
@@ -43,7 +43,7 @@
         { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "Adding new execute_transactions method and importing Transaction/TxnResult" }
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Key DUT signals: slave_addr_in, rw, num_bytes, data_in, repeated_start_in, start, busy, done, ack_error, data_out, data_valid, byte_count.\n\nExtract the payload-feeding logic from write_bytes (lines 143-246) and the data_valid capture from read_bytes (lines 293-359) into internal helpers that execute_transactions can reuse. The repeated_start_in signal on line 90/158/301 is currently always set to 0 — this is the signal to drive.\n\nInter-transaction gap: use ClockCycles(dut.clk, 10) between transactions, UNLESS the previous transaction ended with repeated_start (in that case, no gap — the master transitions directly to the next START)."
     },
     {
@@ -63,7 +63,7 @@
       "dependsOn": ["US-002"],
       "sharedFiles": [],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Run tests with: cd backend/sim && python -m pytest tests/test_protocol.py (cocotb runner pattern, same as test_i2c_cocotb.py).\n\nThe verilog_practice/I2C/i2c_master_tb.v has a repeated_start_test task (lines 332-374) as reference for expected behavior.\n\nKey test pattern — classic EEPROM read:\n  1. Start → send_byte(0xA0) → send_byte(reg_addr) → repeated_start\n  2. send_byte(0xA1) → recv_byte(ACK) → recv_byte(NACK) → stop\n  3. Verify read data matches what was written to reg_addr\n\nThe slave's in_read_ack_window fix (already in i2c_demo RTL) prevents false STOP detection during read ACK phase, which is critical for repeated start reliability."
     },
     {
@@ -82,7 +82,7 @@
         { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "Adding new op parsing and protocol buffering logic to parse_step/execute_step" }
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Buffering strategy: when execute_step encounters op='start', it enters protocol-buffering mode. Subsequent steps (send_byte, recv_byte, repeated_start) are collected into a buffer. When op='stop' is encountered, the full buffer is passed to ProtocolInterpreter.interpret(), then I2CDriver.execute_transactions(). Results are mapped back: each send_byte/recv_byte gets its own step result.\n\nJSON example:\n  {\"steps\": [\n    {\"op\": \"reset\"},\n    {\"op\": \"start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA0\"},\n    {\"op\": \"send_byte\", \"data\": \"0x10\"},\n    {\"op\": \"repeated_start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA1\"},\n    {\"op\": \"recv_byte\", \"ack\": true},\n    {\"op\": \"recv_byte\", \"ack\": false},\n    {\"op\": \"stop\"}\n  ]}\n\nThe execute_step function will need a stateful context (or modify execute_sequence) to handle buffering across multiple step calls."
     },
     {
@@ -106,7 +106,7 @@
         { "file": "backend/sim/protocol_interpreter.py", "conflictType": "append-only", "reason": "Adding validate_protocol_sequence function to existing module" }
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "This can run in parallel with US-004 since US-005 only adds a validation function to protocol_interpreter.py (append-only) while US-004 modifies test_runner.py.\n\nValidation should be called in the backend route handler (backend/app/routes/simulation.py) before passing steps to the test runner. If validation fails, return HTTP 422 with the error list.\n\nEdge cases to validate:\n- Empty sequence (no start/stop) → valid (just means no protocol steps)\n- start immediately followed by stop → invalid (no address byte)\n- Multiple starts without stop → invalid\n- recv_byte after send_byte(addr+W) → invalid (wrong mode)\n- send_byte after send_byte(addr+R) → invalid (should be recv_byte in read mode)"
     },
     {
@@ -123,7 +123,7 @@
       "dependsOn": ["US-004", "US-005"],
       "sharedFiles": [],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Template JSON for repeated_start_read.json:\n  {\"name\": \"Repeated Start Read\", \"description\": \"Write register pointer then read via repeated start\", \"steps\": [\n    {\"op\": \"reset\"},\n    {\"op\": \"write_bytes\", \"addr\": \"0x50\", \"reg\": \"0x00\", \"data\": [\"0xDE\", \"0xAD\"]},\n    {\"op\": \"start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA0\"},\n    {\"op\": \"send_byte\", \"data\": \"0x00\"},\n    {\"op\": \"repeated_start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA1\"},\n    {\"op\": \"recv_byte\", \"ack\": true},\n    {\"op\": \"recv_byte\", \"ack\": false},\n    {\"op\": \"stop\"}\n  ]}\n\nMixed test: combine legacy write_bytes with protocol-level read via repeated start in one sequence."
     },
     {
@@ -145,7 +145,7 @@
         { "file": "frontend/src/components/Sidebar.tsx", "conflictType": "structural-modify", "reason": "Adding Protocol section to sidebar layout" }
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "Create StartNode.tsx, StopNode.tsx, RepeatedStartNode.tsx in frontend/src/components/nodes/.\n\nSidebar layout update: add a divider and 'Protocol' section header below the existing 5 Basic node types. Sidebar items use HTML5 dataTransfer with node type string.\n\nNode type strings: 'i2c_start', 'i2c_stop', 'repeated_start'. Use 'i2c_start'/'i2c_stop' to avoid conflict with any React Flow internal 'start'/'stop' strings.\n\nStartNode is similar to ResetNode (no params, just label + output handle). StopNode is similar but input handle only. RepeatedStartNode has both handles.\n\nColors: Start=emerald/green, Stop=rose/red, RepeatedStart=orange/amber."
     },
     {
@@ -169,7 +169,7 @@
         { "file": "frontend/src/components/Sidebar.tsx", "conflictType": "append-only", "reason": "Adding 2 more items to Protocol section" }
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Create SendByteNode.tsx and RecvByteNode.tsx in frontend/src/components/nodes/.\n\nNode type strings: 'send_byte', 'recv_byte'.\n\nSendByteNode helper text logic: parse the hex value, if it's a plausible address byte (any valid hex), show decoded addr and R/W. Example: input '0xA0' → 'Addr: 0x50 W', input '0xA1' → 'Addr: 0x50 R'. This is always shown as helper text (the user decides if it's actually an address byte based on position in chain).\n\nRecvByteNode: the 'data' field is read-only and populated after simulation via node.data.receivedData (set by the status overlay logic in US-009's pattern). For now, just show an empty read-only field with placeholder 'After sim'.\n\nUse existing validate.ts pattern: validateHexByte(v) for SendByte validation. Add 'nodrag' class on inputs."
     },
     {
@@ -188,7 +188,7 @@
         { "file": "frontend/src/lib/serialize.ts", "conflictType": "structural-modify", "reason": "Adding new node type cases to mapNodeToStep switch" }
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Update mapNodeToStep() in serialize.ts to handle the 5 new node types. The switch statement currently handles: reset, write, read, scan, delay. Add cases for: i2c_start, i2c_stop, repeated_start, send_byte, recv_byte.\n\nSendByte serialization: {op: 'send_byte', data: formatHex(node.data.data)}\nRecvByte serialization: {op: 'recv_byte', ack: node.data.ack}\nStart/Stop/RepeatedStart: just {op: '<name>'}, no additional fields.\n\nUpdate serialize.test.ts with new test cases. The serializeFlowWithOrder function should also work with the new types."
     },
     {
@@ -209,7 +209,7 @@
         { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Adding protocol validation logic that runs on flow change and updates node.data.warning" }
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Create a validateProtocolFlow(nodes, edges) function in frontend/src/lib/validate.ts (or a new protocol-validate.ts). This walks the serialized chain and checks:\n1. Every i2c_start has a matching i2c_stop (or chain ends)\n2. send_byte/recv_byte only between i2c_start and i2c_stop\n3. After i2c_start, first send_byte is address byte — decode and show R/W\n4. recv_byte only valid when address byte LSB=1 (read mode)\n5. send_byte (after addr) only valid when address byte LSB=0 (write mode)\n\nStore warnings in node.data.warning (string or null). Node components should render a yellow warning icon + tooltip when data.warning is truthy.\n\nCall validateProtocolFlow in FlowCanvas whenever nodes/edges change (same pattern as existing validation). Clear warnings when flow changes."
     }
   ]

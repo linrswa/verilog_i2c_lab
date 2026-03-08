@@ -410,14 +410,29 @@ export default function App() {
       const result = await runSimulation(steps)
       setSimulationResult(result)
 
-      // Build status map: each step result maps to the node at the same index
+      // Build status map: result.steps only contains data-producing ops
+      // (send_byte, recv_byte, reset, write_bytes, etc.) — protocol framing
+      // ops (start, stop, repeated_start) produce no result entries.
+      // orderedNodeIds and steps are parallel arrays, so steps[i].op tells
+      // us whether orderedNodeIds[i] has a corresponding result entry.
       const statusMap: NodeStatusMap = new Map()
-      result.steps.forEach((stepResult, i) => {
+      const noResultOps = new Set(['start', 'stop', 'repeated_start'])
+      let resultIdx = 0
+      for (let i = 0; i < orderedNodeIds.length; i++) {
         const nodeId = orderedNodeIds[i]
-        if (nodeId !== undefined) {
-          statusMap.set(nodeId, stepResult.passed ? 'ok' : 'fail')
+        const sentOp = steps[i]?.op
+        if (sentOp && noResultOps.has(sentOp)) {
+          // Framing ops don't produce result entries — mark as ok
+          statusMap.set(nodeId, 'ok')
+          continue
         }
-      })
+        const stepResult = result.steps[resultIdx]
+        if (stepResult !== undefined) {
+          const isOk = (stepResult as Record<string, unknown>).status === 'ok' || stepResult.passed === true
+          statusMap.set(nodeId, isOk ? 'ok' : 'fail')
+          resultIdx++
+        }
+      }
       // Write status into each node's data so custom node components can render badges
       setNodes((nds) =>
         nds.map((n) => ({ ...n, data: { ...n.data, status: statusMap.get(n.id) } })),

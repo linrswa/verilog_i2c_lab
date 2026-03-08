@@ -6,7 +6,9 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
 export interface StepResult {
   op: string
+  /** Derived from backend `status` field: true when status === 'ok'. */
   passed: boolean
+  status?: string
   // read_bytes result fields
   data?: number[]
   match?: boolean
@@ -70,7 +72,17 @@ export async function runSimulation(steps: StepPayload[]): Promise<SimulationRes
     throw new Error(message)
   }
 
-  return response.json() as Promise<SimulationResult>
+  const data = await response.json() as SimulationResult
+  // Normalize: backend sends `status: "ok"|"fail"` per step, but the frontend
+  // interface uses `passed: boolean`.  Derive `passed` from `status` when missing.
+  if (data.steps) {
+    for (const step of data.steps) {
+      if (step.passed === undefined && step.status !== undefined) {
+        step.passed = step.status === 'ok'
+      }
+    }
+  }
+  return data
 }
 
 /**

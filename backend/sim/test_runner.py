@@ -92,7 +92,7 @@ import tempfile
 from typing import Any
 
 import cocotb
-from cocotb.runner import get_runner
+from cocotb_tools.runner import get_runner
 
 from i2c_driver import I2CDriver
 from protocol_interpreter import ProtocolInterpreter
@@ -690,6 +690,14 @@ async def test_i2c_sequence(dut) -> None:
         # Default smoke test: just reset the DUT.
         steps = [{"op": "reset"}]
 
+    # Auto-prepend a reset if the sequence doesn't start with one.
+    # The DUT requires a reset before any I2C operation; without it the
+    # simulation hangs because signals are in an undefined state.
+    auto_reset = False
+    if steps and steps[0].get("op") != "reset":
+        steps.insert(0, {"op": "reset"})
+        auto_reset = True
+
     # Determine the VCD path (produced by the Verilog $dumpfile directive).
     vcd_filename = os.environ.get("VCD_FILENAME", "i2c_system_cocotb.vcd")
     # The simulator places the VCD in its working/build directory; we report
@@ -698,6 +706,11 @@ async def test_i2c_sequence(dut) -> None:
 
     driver = I2CDriver(dut)
     result = await run_sequence(driver, steps, vcd_path=vcd_path)
+
+    # Strip the auto-prepended reset from results so the frontend mapping
+    # between submitted steps and result entries stays aligned.
+    if auto_reset and result.get("steps") and result["steps"][0].get("op") == "reset":
+        result["steps"] = result["steps"][1:]
 
     # Persist the structured result so the caller can read it back.
     result_path = os.environ.get("TEST_RESULT_JSON", "")

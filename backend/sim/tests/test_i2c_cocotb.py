@@ -346,7 +346,7 @@ def run_tests(
         (the wrapper Verilog drives the $dumpfile path), but kept for API
         consistency with test_runner.run_simulation().
     """
-    from cocotb.runner import get_runner  # noqa: PLC0415
+    from cocotb_tools.runner import get_runner  # noqa: PLC0415
 
     rtl_dir = _SIM_DIR / "rtl"
     tb_dir = _SIM_DIR / "tb"

@@ -5,7 +5,22 @@
 - reg_addr was already 8-bit in original design
 - FastAPI app uses lifespan context manager pattern; CORS allows all origins for dev
 - mypy with --ignore-missing-imports for typecheck (fastapi has stubs, cocotb does not)
+- backend/sim needs __init__.py for pytest imports (from sim.X import Y)
+- Frontend worktrees need `bun install` before tsc; NodePaletteItem helper used in Sidebar
+- Node type strings: 'i2c_start', 'i2c_stop', 'repeated_start' to avoid RF internal conflicts
 
+---
+
+## 2026-03-08T13:00+0800 - US-001: Protocol Step Interpreter
+- Created ProtocolInterpreter class with interpret(steps) → list[Transaction]. Handles chunking for long sequences (14 write, 15 read).
+- Files changed: backend/sim/__init__.py, backend/sim/protocol_interpreter.py, backend/tests/test_protocol_interpreter.py
+- Learnings: backend/sim needs __init__.py for package imports. Read-mode addr+stop (no recv_byte) produces zero transactions.
+---
+
+## 2026-03-08T13:00+0800 - US-007: Protocol Control Nodes (Start, Stop, RepeatedStart)
+- Created StartNode (emerald), StopNode (rose), RepeatedStartNode (orange) with correct handle configs. Sidebar has Protocol section.
+- Files changed: frontend/src/components/nodes/{StartNode,StopNode,RepeatedStartNode}.tsx, index.ts, Sidebar.tsx, App.tsx
+- Learnings: NodePaletteItem helper component extracted for sidebar DRY. bun install needed in worktrees.
 ---
 
 ## 2026-03-07T21:10+0800 - US-001: Slave Register File 擴展至 256 bytes
@@ -198,4 +213,22 @@
 - Created validate.ts with validateHexAddr/Reg/DataList/PositiveInt. Updated Write/Read/Scan/Delay nodes with validation on input change. App.tsx checks nodesHaveErrors for isRunDisabled.
 - Files changed: frontend/src/lib/validate.ts, components/nodes/WriteNode.tsx, ReadNode.tsx, ScanNode.tsx, DelayNode.tsx, App.tsx
 - Learnings: errors stored as Record<string, string | undefined> in node.data.errors. type="text" better than type="number" for custom validation.
+---
+
+## 2026-03-08T13:10+0800 - US-002: Driver Execute Transaction List
+- Added execute_transactions() to I2CDriver with _run_write_txn/_run_read_txn helpers. TxnResult dataclass in protocol_interpreter.py.
+- Files changed: backend/sim/i2c_driver.py, backend/sim/protocol_interpreter.py
+- Learnings: write_bytes payload timing off-by-one: byte N+1 pre-loaded when byte_count=N-1. 10-cycle gap between txns unless repeated_start.
+---
+
+## 2026-03-08T13:10+0800 - US-005: Protocol Sequence Validation
+- Added validate_protocol_sequence() to protocol_interpreter.py. Backend route returns 422 on invalid protocol sequences.
+- Files changed: backend/sim/protocol_interpreter.py, backend/app/routes/simulation.py, backend/tests/test_validate_protocol_sequence.py, backend/tests/test_api.py
+- Learnings: int("0xA0") raises ValueError; use int(raw_byte, 0) for hex string parsing. Validation accumulates all errors rather than stopping at first.
+---
+
+## 2026-03-08T13:10+0800 - US-008: Data Transfer Nodes (SendByte, RecvByte)
+- Created SendByteNode (purple) with hex input + address decode helper, RecvByteNode (teal) with ACK/NACK select. validateHexByte added.
+- Files changed: frontend/src/components/nodes/{SendByteNode,RecvByteNode}.tsx, index.ts, Sidebar.tsx, App.tsx, validate.ts
+- Learnings: buildDefaultData in App.tsx was pre-wired by bridge prep. decodeAddressByte always shows decoded interpretation.
 ---

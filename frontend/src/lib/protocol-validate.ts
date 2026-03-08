@@ -212,11 +212,8 @@ export function validateProtocolFlow(
           if (isReadMode === true) {
             warnings.set(id, 'Send Byte used in read mode (address LSB=1)')
           }
-          // Show decoded helper for all subsequent send_bytes too (harmless)
-          const addrByte = parseAddressByte(byteStr)
-          if (addrByte !== null) {
-            addrHelpers.set(id, decodeAddressByte(addrByte))
-          }
+          // Mark as data byte (not an address byte)
+          addrHelpers.set(id, `Data byte`)
         }
         break
       }

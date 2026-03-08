@@ -1,0 +1,6 @@
+<testsuites name="results">
+  <testsuite name="all" package="all">
+    <property name="random_seed" value="1772953401" />
+    <testcase name="test_i2c_sequence" classname="test_runner" file="/Users/rswa/Dev/verilog/i2c_demo/backend/sim/test_runner.py" lineno="666" time="0.017345905303955078" sim_time_ns="9935.0" ratio_time="572757.6523627567" />
+  </testsuite>
+</testsuites>
