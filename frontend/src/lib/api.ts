@@ -19,6 +19,11 @@ export interface StepResult {
   rw?: string
   /** Error message when status is "error" */
   message?: string
+  /**
+   * Simulation time range for this step in picoseconds: [start_ps, end_ps].
+   * Present when the step was executed under cocotb with timing capture enabled.
+   */
+  time_range_ps?: [number, number]
   [key: string]: unknown
 }
 
@@ -30,6 +35,11 @@ export interface SimulationResult {
   /** Current slave register pointer (0–255) */
   reg_pointer: number
   waveform_id?: string
+  /**
+   * Total simulation time in picoseconds at the end of the run.
+   * Present when timing capture was active during the simulation.
+   */
+  sim_time_total_ps?: number
 }
 
 export interface TemplateItem {
@@ -126,4 +136,45 @@ export async function getTemplate(id: string): Promise<TemplateDetail> {
  */
 export function getWaveformUrl(id: string): string {
   return `${API_BASE}/waveform/${encodeURIComponent(id)}`
+}
+
+// ─── Waveform signals types (mirrors backend WaveformSignals schema) ────────
+
+export interface SignalData {
+  width: number
+  changes: [number, string][]
+}
+
+export interface WaveformSignalsResponse {
+  timescale: string
+  end_time: number
+  signals: Record<string, SignalData>
+}
+
+/**
+ * GET /api/waveform/{id}/signals — fetch parsed VCD signal data for rendering.
+ *
+ * @param waveformId - UUID returned in the simulation run response.
+ * @param signals    - Optional comma-separated signal leaf names to filter.
+ *                     When omitted, all available signals are returned.
+ *
+ * Throws an Error on 404 (waveform not found) or 400 (unknown signal name).
+ */
+export async function getWaveformSignals(
+  waveformId: string,
+  signals?: string[],
+): Promise<WaveformSignalsResponse> {
+  const url = new URL(`${API_BASE}/waveform/${encodeURIComponent(waveformId)}/signals`)
+  if (signals && signals.length > 0) {
+    url.searchParams.set('signals', signals.join(','))
+  }
+
+  const response = await fetch(url.toString())
+
+  if (!response.ok) {
+    const message = await extractErrorMessage(response)
+    throw new Error(message)
+  }
+
+  return response.json() as Promise<WaveformSignalsResponse>
 }
