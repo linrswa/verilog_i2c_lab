@@ -27,7 +27,12 @@ export interface TemplateItem {
   id: string
   name: string
   description?: string
+  step_count?: number
   [key: string]: unknown
+}
+
+export interface TemplateDetail extends TemplateItem {
+  steps: StepPayload[]
 }
 
 // ─── Error helper ──────────────────────────────────────────────────────────
@@ -80,6 +85,20 @@ export async function fetchTemplates(): Promise<TemplateItem[]> {
   }
 
   return response.json() as Promise<TemplateItem[]>
+}
+
+/**
+ * GET /api/templates/{id} — fetch the full detail of one template, including its steps array.
+ */
+export async function getTemplate(id: string): Promise<TemplateDetail> {
+  const response = await fetch(`${API_BASE}/templates/${encodeURIComponent(id)}`)
+
+  if (!response.ok) {
+    const message = await extractErrorMessage(response)
+    throw new Error(message)
+  }
+
+  return response.json() as Promise<TemplateDetail>
 }
 
 /**
