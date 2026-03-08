@@ -23,6 +23,9 @@ import {
   ReadNode,
   ScanNode,
   DelayNode,
+  StartNode,
+  StopNode,
+  RepeatedStartNode,
 } from './components/nodes'
 import { serializeFlowWithOrder } from './lib/serialize'
 import type { StepPayload } from './lib/serialize'
@@ -45,6 +48,9 @@ const nodeTypes: NodeTypes = {
   read: ReadNode,
   scan: ScanNode,
   delay: DelayNode,
+  i2c_start: StartNode,
+  i2c_stop: StopNode,
+  repeated_start: RepeatedStartNode,
 }
 
 // Default data for each node type per acceptance criteria:
@@ -61,6 +67,10 @@ function buildDefaultData(type: string): Record<string, unknown> {
       return { address: '0x50', expect: '' }
     case 'delay':
       return { cycles: '100' }
+    case 'i2c_start':
+    case 'i2c_stop':
+    case 'repeated_start':
+      return {}
     default:
       return {}
   }
