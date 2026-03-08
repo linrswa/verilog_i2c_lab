@@ -50,6 +50,28 @@ class Transaction:
     repeated_start: bool = False
 
 
+@dataclass
+class TxnResult:
+    """Result of a single executed I2C transaction.
+
+    Parameters
+    ----------
+    ack_ok:
+        True when the slave acknowledged all address and data bytes; False
+        when a NACK was detected.
+    data_read:
+        Bytes captured from the slave during a read transaction.  Empty for
+        write transactions.
+    bytes_written:
+        Number of data bytes successfully written during a write transaction.
+        0 for read transactions.
+    """
+
+    ack_ok: bool
+    data_read: list[int] = field(default_factory=list)
+    bytes_written: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Hardware limits
 # ---------------------------------------------------------------------------

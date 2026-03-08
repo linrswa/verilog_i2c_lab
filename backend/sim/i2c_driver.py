@@ -13,6 +13,8 @@ DUT signal map (i2c_system_wrapper):
 import cocotb
 from cocotb.triggers import RisingEdge, ClockCycles
 
+from sim.protocol_interpreter import Transaction, TxnResult
+
 
 # Number of clock cycles to wait after de-asserting reset before the DUT is
 # considered stable.  Matches the pattern used in test_i2c_system.py.
@@ -357,6 +359,212 @@ class I2CDriver:
                 await ClockCycles(dut.clk, 10)
 
         return result
+
+    # ------------------------------------------------------------------
+    # Protocol-level transaction execution
+    # ------------------------------------------------------------------
+
+    async def _run_write_txn(
+        self,
+        addr: int,
+        payload: list,
+        repeated_start: bool,
+    ) -> TxnResult:
+        """Execute a single write transaction on the hardware.
+
+        Drives slave_addr_in, rw=0, num_bytes, data_in, and repeated_start_in,
+        then pulses start and feeds the payload bytes using the same timing
+        strategy as write_bytes.
+
+        Parameters
+        ----------
+        addr:
+            7-bit I2C slave address.
+        payload:
+            Bytes to send (may be empty — address-only write for bus scan).
+        repeated_start:
+            When True, drives repeated_start_in=1 so the master issues a
+            repeated START instead of a STOP at the end of the transaction.
+
+        Returns
+        -------
+        TxnResult
+            ack_ok is False when the slave NACKed; bytes_written reflects how
+            many data bytes from *payload* were transmitted.
+        """
+        dut = self._dut
+
+        total_bytes = len(payload)
+        # num_bytes of 0 is invalid; the hardware needs at least 1 byte
+        # (address-only scans send a single dummy byte via the caller).
+        hw_num_bytes = max(total_bytes, 1)
+
+        dut.slave_addr_in.value = addr
+        dut.rw.value = 0
+        dut.num_bytes.value = hw_num_bytes
+        dut.repeated_start_in.value = 1 if repeated_start else 0
+        dut.data_in.value = payload[0] if payload else 0x00
+
+        # Pulse start for exactly one clock cycle.
+        dut.start.value = 1
+        await RisingEdge(dut.clk)
+        dut.start.value = 0
+
+        # Feed remaining payload bytes using the same timing strategy as
+        # write_bytes: wait ~11×CLK_DIV clocks past start to clear the ADDR
+        # + ADDR-ACK phases, present payload[1], then use byte_count polling
+        # for subsequent bytes.
+        next_payload_idx = 1
+        addr_ack_wait = self._clk_div * 11
+
+        if len(payload) > 1:
+            done_seen = False
+            for _ in range(addr_ack_wait):
+                await RisingEdge(dut.clk)
+                if dut.done.value == 1:
+                    done_seen = True
+                    break
+
+            if not done_seen:
+                dut.data_in.value = payload[next_payload_idx]
+                next_payload_idx += 1
+        else:
+            done_seen = False
+
+        while not done_seen:
+            await RisingEdge(dut.clk)
+
+            if dut.done.value == 1:
+                done_seen = True
+                break
+
+            if next_payload_idx < len(payload):
+                current_byte_count = int(dut.byte_count.value)
+                if current_byte_count >= next_payload_idx - 1:
+                    dut.data_in.value = payload[next_payload_idx]
+                    next_payload_idx += 1
+
+        ack_ok = int(dut.ack_error.value) == 0
+        return TxnResult(
+            ack_ok=ack_ok,
+            data_read=[],
+            bytes_written=len(payload) if ack_ok else 0,
+        )
+
+    async def _run_read_txn(
+        self,
+        addr: int,
+        read_count: int,
+        repeated_start: bool,
+    ) -> TxnResult:
+        """Execute a single read transaction on the hardware.
+
+        Drives slave_addr_in, rw=1, num_bytes, and repeated_start_in, then
+        pulses start and captures bytes as data_valid fires — mirroring the
+        capture loop in read_bytes.
+
+        Parameters
+        ----------
+        addr:
+            7-bit I2C slave address.
+        read_count:
+            Number of bytes to read (1-15).
+        repeated_start:
+            When True, drives repeated_start_in=1 so the master issues a
+            repeated START instead of a STOP at the end of the transaction.
+
+        Returns
+        -------
+        TxnResult
+            ack_ok is False when the slave NACKed the address; data_read
+            contains bytes captured via data_valid.
+        """
+        dut = self._dut
+
+        dut.slave_addr_in.value = addr
+        dut.rw.value = 1
+        dut.num_bytes.value = read_count
+        dut.repeated_start_in.value = 1 if repeated_start else 0
+
+        dut.start.value = 1
+        await RisingEdge(dut.clk)
+        dut.start.value = 0
+
+        # Collect bytes as data_valid fires; stop early if done pulses first.
+        received: list = []
+        while len(received) < read_count:
+            await RisingEdge(dut.clk)
+            if dut.done.value == 1:
+                break
+            if dut.data_valid.value == 1:
+                received.append(int(dut.data_out.value))
+
+        # If all expected bytes arrived before done, wait for the done pulse.
+        if len(received) >= read_count:
+            while True:
+                await RisingEdge(dut.clk)
+                if dut.done.value == 1:
+                    break
+
+        ack_ok = int(dut.ack_error.value) == 0
+        return TxnResult(
+            ack_ok=ack_ok,
+            data_read=received,
+            bytes_written=0,
+        )
+
+    async def execute_transactions(
+        self, txns: list
+    ) -> list:
+        """Execute a list of Transaction objects sequentially on the hardware.
+
+        Each Transaction may be a write (rw=0) or read (rw=1).  The
+        repeated_start_in signal is set to 1 when txn.repeated_start is True,
+        causing the RTL master to issue a repeated START rather than a STOP.
+
+        Inter-transaction gap
+        ---------------------
+        A 10-cycle gap (ClockCycles) is inserted between transactions UNLESS
+        the preceding transaction ended with repeated_start=True, in which case
+        no gap is inserted — the bus transitions directly to the next START.
+
+        Parameters
+        ----------
+        txns:
+            List of Transaction objects (from ProtocolInterpreter or built
+            manually).  An empty list is a no-op.
+
+        Returns
+        -------
+        list[TxnResult]
+            One TxnResult per input Transaction, in the same order.
+        """
+        results: list = []
+        prev_repeated_start = False
+
+        for txn in txns:
+            # Insert inter-transaction gap unless the previous transaction ended
+            # with a repeated start (in that case the bus is still mid-sequence).
+            if results and not prev_repeated_start:
+                await ClockCycles(self._dut.clk, 10)
+
+            if txn.rw == 0:
+                result = await self._run_write_txn(
+                    addr=txn.addr,
+                    payload=list(txn.data_bytes),
+                    repeated_start=txn.repeated_start,
+                )
+            else:
+                result = await self._run_read_txn(
+                    addr=txn.addr,
+                    read_count=txn.read_count,
+                    repeated_start=txn.repeated_start,
+                )
+
+            results.append(result)
+            prev_repeated_start = txn.repeated_start
+
+        return results
 
     # ------------------------------------------------------------------
     # Scan and register dump utilities
