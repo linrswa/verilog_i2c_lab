@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import type { DragEvent } from 'react'
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -180,7 +179,6 @@ function FlowCanvas({
   edges,
   onNodesChange,
   onEdgesChange,
-  onAppendNode,
   initialViewportRestored,
   onViewportRestored,
 }: {
@@ -188,7 +186,6 @@ function FlowCanvas({
   edges: Edge[]
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
-  onAppendNode: (nodeType: string) => void
   initialViewportRestored: boolean
   onViewportRestored: () => void
 }) {
@@ -208,29 +205,8 @@ function FlowCanvas({
   // Auto-save nodes/edges/viewport to localStorage (debounced 500 ms)
   useFlowAutosave(nodes, edges, getViewport)
 
-  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-  }, [])
-
-  const handleDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
-      event.preventDefault()
-
-      const nodeType = event.dataTransfer.getData('application/reactflow-node-type')
-      if (!nodeType) return
-
-      onAppendNode(nodeType)
-    },
-    [onAppendNode],
-  )
-
   return (
-    <div
-      className="flex-1 relative"
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
-    >
+    <div className="flex-1 relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -462,7 +438,7 @@ export default function App() {
 
       {/* Main body: sidebar + canvas + result panel */}
       <div className="flex flex-row flex-1 overflow-hidden">
-        <Sidebar />
+        <Sidebar onAddNode={handleAppendNode} />
 
         {/* ReactFlowProvider enables useReactFlow() inside FlowCanvas */}
         <ReactFlowProvider>
@@ -471,7 +447,6 @@ export default function App() {
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
-            onAppendNode={handleAppendNode}
             initialViewportRestored={viewportRestored}
             onViewportRestored={() => setViewportRestored(true)}
           />

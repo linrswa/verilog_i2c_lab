@@ -1,5 +1,3 @@
-import type { DragEvent } from 'react'
-
 interface NodeType {
   type: string
   label: string
@@ -15,18 +13,15 @@ const PROTOCOL_NODE_TYPES: NodeType[] = [
   { type: 'recv_byte', label: 'Recv Byte', color: '#14b8a6', description: 'Receive a byte from the I2C bus' },
 ]
 
-function handleDragStart(event: DragEvent<HTMLDivElement>, nodeType: string) {
-  event.dataTransfer.setData('application/reactflow-node-type', nodeType)
-  event.dataTransfer.effectAllowed = 'move'
+interface NodePaletteItemProps extends NodeType {
+  onAdd: (type: string) => void
 }
 
-function NodePaletteItem({ type, label, color, description }: NodeType) {
+function NodePaletteItem({ type, label, color, description, onAdd }: NodePaletteItemProps) {
   return (
-    <div
-      key={type}
-      draggable
-      onDragStart={(e) => handleDragStart(e, type)}
-      className="flex items-center gap-2 px-3 py-2 rounded-md bg-white border border-gray-200 cursor-grab shadow-sm hover:shadow-md hover:border-gray-300 transition-all select-none active:cursor-grabbing"
+    <button
+      onClick={() => onAdd(type)}
+      className="flex items-center gap-2 px-3 py-2 rounded-md bg-white border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 transition-all select-none text-left w-full cursor-pointer"
       title={description}
     >
       <span
@@ -34,11 +29,15 @@ function NodePaletteItem({ type, label, color, description }: NodeType) {
         style={{ backgroundColor: color }}
       />
       <span className="text-sm font-medium text-gray-700">{label}</span>
-    </div>
+    </button>
   )
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  onAddNode: (type: string) => void
+}
+
+export function Sidebar({ onAddNode }: SidebarProps) {
   return (
     <aside
       style={{ width: '200px', minWidth: '200px' }}
@@ -48,7 +47,7 @@ export function Sidebar() {
         Protocol
       </h2>
       {PROTOCOL_NODE_TYPES.map((nodeType) => (
-        <NodePaletteItem key={nodeType.type} {...nodeType} />
+        <NodePaletteItem key={nodeType.type} {...nodeType} onAdd={onAddNode} />
       ))}
     </aside>
   )
