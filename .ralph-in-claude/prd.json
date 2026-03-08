@@ -1,213 +1,216 @@
 {
-  "project": "I2C Demo — Phase 2 FastAPI Backend",
-  "branchName": "ralph/phase2-fastapi-backend",
+  "project": "I2C Demo — Phase 4 Protocol-Level Primitives",
+  "branchName": "ralph/phase4-protocol-primitives",
   "baseBranch": "main",
-  "sourcePrd": ".ralph-in-claude/tasks/prd-phase2-fastapi-backend.md",
-  "description": "Wrap the Phase 1 cocotb simulation layer in a FastAPI web service with REST API endpoints for running simulations, serving test templates, and downloading VCD waveforms.",
+  "sourcePrd": ".ralph-in-claude/tasks/prd-phase4-protocol-level-primitives.md",
+  "description": "Refactor the I2C simulation stack to protocol-level primitives (start, stop, repeated_start, send_byte, recv_byte). Add a ProtocolInterpreter that groups protocol steps into master transactions, expose new ops through the backend API, and add 5 new low-level nodes to the React Flow frontend.",
   "conflictStrategy": "optimistic",
   "userStories": [
     {
       "id": "US-001",
-      "title": "FastAPI Project Skeleton",
-      "description": "As a developer, I want a properly structured FastAPI project with dependencies so that I can start building API endpoints.",
+      "title": "Protocol Step Interpreter",
+      "description": "As a developer, I want a protocol step interpreter in the driver layer so that protocol-level step sequences can be translated into master transactions.",
       "acceptanceCriteria": [
-        "backend/app/main.py creates a FastAPI app with CORS middleware (allow all origins for dev)",
-        "backend/requirements.txt includes fastapi, uvicorn, and any other dependencies",
-        "GET /api/health returns {\"status\": \"ok\"}",
-        "App can be started with `uvicorn app.main:app` from the backend/ directory",
-        "Typecheck passes"
+        "New class ProtocolInterpreter in backend/sim/protocol_interpreter.py",
+        "interpret(steps) method groups protocol steps into Transaction dataclass list",
+        "Grouping rules: start begins group, first send_byte is addr+RW byte (LSB=RW), subsequent send_bytes are data, recv_byte collects read bytes with ack param, repeated_start ends group with repeated_start=true, stop ends group with repeated_start=false",
+        "Transaction dataclass with fields: addr (int), rw (0=write, 1=read), data_bytes (list[int]), read_count (int), repeated_start (bool)",
+        "Raises ValueError for invalid sequences (send_byte without start, recv_byte in write mode, etc.)",
+        "Unit tests (pytest, no cocotb): write sequence, read sequence, write-then-read with repeated start, validation errors",
+        "Typecheck passes (mypy)"
       ],
       "dependsOn": [],
-      "sharedFiles": [
-        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Created here, later stories register routes/lifespan" }
-      ],
+      "sharedFiles": [],
       "priority": 1,
-      "passes": true,
-      "notes": "File structure: backend/app/main.py (FastAPI app, CORS, lifespan), backend/app/routes/simulation.py (route handlers), backend/app/services/ (runner.py, waveform.py). CORS should allow all origins for dev."
+      "passes": false,
+      "notes": "The RTL master is transaction-based: START + ADDR + N data bytes + STOP/REPEATED_START as one atomic op. The interpreter must group protocol-level steps into these transactions.\n\nAddress byte convention: first send_byte after start is addr+RW. Bits [7:1] = 7-bit slave addr, Bit [0] = RW (0=write, 1=read). Example: 0xA0 = addr 0x50 write, 0xA1 = addr 0x50 read.\n\nGrouping example:\n  start → send_byte(0xA0) → send_byte(0x10) → repeated_start → send_byte(0xA1) → recv_byte(ACK) → recv_byte(NACK) → stop\n  → Transaction 1: addr=0x50, rw=WRITE, data=[0x10], repeated_start=true\n  → Transaction 2: addr=0x50, rw=READ, read_count=2, repeated_start=false\n\nMaster hardware constraint: num_bytes is 4-bit (max 15). Write max = 14 data bytes (1 slot for reg pointer). Read max = 15 bytes. The interpreter should handle chunking for long sequences."
     },
     {
       "id": "US-002",
-      "title": "Simulation Service — Core Execution",
-      "description": "As a backend service, I want to invoke the Phase 1 test runner as a subprocess so that API requests trigger real simulations.",
+      "title": "Driver Execute Transaction List",
+      "description": "As a developer, I want the I2CDriver to execute a list of Transaction objects so that interpreted protocol steps can run on the hardware.",
       "acceptanceCriteria": [
-        "backend/app/services/runner.py contains a SimulationService class",
-        "run_simulation(steps: list[dict]) method executes test_runner.py via asyncio.create_subprocess_exec",
-        "Steps are passed via a temp JSON file (not env var)",
-        "Result JSON is read back from the temp file written by test_runner",
-        "Returns a structured dict with passed, steps, register_dump, vcd_path",
-        "Simulation timeout of 60 seconds (configurable); raises TimeoutError on expiry",
-        "Temp files (input JSON, result JSON) are cleaned up after execution",
-        "Typecheck passes"
+        "New method I2CDriver.execute_transactions(txns: list[Transaction]) -> list[TxnResult]",
+        "For write transactions: drives slave_addr_in, rw=0, num_bytes, data_in, repeated_start_in — reuses existing payload-feeding logic",
+        "For read transactions: drives slave_addr_in, rw=1, num_bytes, repeated_start_in — reuses existing data_valid capture logic",
+        "repeated_start_in set to 1 when txn.repeated_start is True",
+        "TxnResult dataclass: ack_ok (bool), data_read (list[int]), bytes_written (int)",
+        "Existing write_bytes/read_bytes/scan methods remain unchanged and functional",
+        "Typecheck passes (mypy)"
       ],
       "dependsOn": ["US-001"],
       "sharedFiles": [
-        { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Created here, US-003 and US-004 modify it" }
+        { "file": "backend/sim/i2c_driver.py", "conflictType": "structural-modify", "reason": "Adding new execute_transactions method and importing Transaction/TxnResult" }
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "Use asyncio.create_subprocess_exec (not subprocess.run) to avoid blocking the event loop. Path resolution: SimulationService needs path to test_runner.py and RTL sources relative to backend/sim/ directory."
+      "passes": false,
+      "notes": "Key DUT signals: slave_addr_in, rw, num_bytes, data_in, repeated_start_in, start, busy, done, ack_error, data_out, data_valid, byte_count.\n\nExtract the payload-feeding logic from write_bytes (lines 143-246) and the data_valid capture from read_bytes (lines 293-359) into internal helpers that execute_transactions can reuse. The repeated_start_in signal on line 90/158/301 is currently always set to 0 — this is the signal to drive.\n\nInter-transaction gap: use ClockCycles(dut.clk, 10) between transactions, UNLESS the previous transaction ended with repeated_start (in that case, no gap — the master transitions directly to the next START)."
     },
     {
       "id": "US-003",
-      "title": "Build Caching (Hybrid Compile)",
-      "description": "As a backend service, I want to cache the compiled Verilog binary and only recompile when RTL files change, so that repeated simulations are faster.",
+      "title": "Cocotb Tests for Repeated Start",
+      "description": "As a developer, I want cocotb tests that exercise repeated start sequences so that I can verify the RTL + driver work correctly end-to-end.",
       "acceptanceCriteria": [
-        "SimulationService checks mtime of all RTL source files against a stored timestamp",
-        "If no RTL file has changed since last compile, skip the compile step and reuse existing sim_build/ binary",
-        "If any RTL file changed, trigger a fresh compile before running",
-        "First run always compiles",
-        "Cache state is stored in memory (no persistence file needed)",
-        "Typecheck passes"
+        "New test file backend/sim/tests/test_protocol.py",
+        "Test: write register pointer (1 byte) → repeated start → read N bytes (classic EEPROM pattern)",
+        "Test: write data → repeated start → read back same data (verify register contents match)",
+        "Test: scan via write with repeated start (addr probe without STOP)",
+        "Test: multi-segment repeated start chain (write → RS → read → RS → write → STOP)",
+        "All tests use ProtocolInterpreter + I2CDriver.execute_transactions()",
+        "All tests pass with cocotb + Icarus Verilog",
+        "Verify via register dump that data integrity is maintained across repeated start sequences"
       ],
       "dependsOn": ["US-002"],
-      "sharedFiles": [
-        { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Adds caching logic to SimulationService" }
-      ],
+      "sharedFiles": [],
       "priority": 3,
-      "passes": true,
-      "notes": "Cache state in memory — recompile on server restart is acceptable. Check mtime of all .v files in RTL source directory."
+      "passes": false,
+      "notes": "Run tests with: cd backend/sim && python -m pytest tests/test_protocol.py (cocotb runner pattern, same as test_i2c_cocotb.py).\n\nThe verilog_practice/I2C/i2c_master_tb.v has a repeated_start_test task (lines 332-374) as reference for expected behavior.\n\nKey test pattern — classic EEPROM read:\n  1. Start → send_byte(0xA0) → send_byte(reg_addr) → repeated_start\n  2. send_byte(0xA1) → recv_byte(ACK) → recv_byte(NACK) → stop\n  3. Verify read data matches what was written to reg_addr\n\nThe slave's in_read_ack_window fix (already in i2c_demo RTL) prevents false STOP detection during read ACK phase, which is critical for repeated start reliability."
     },
     {
       "id": "US-004",
-      "title": "Request Queue (Single Concurrency)",
-      "description": "As a backend service, I want to serialize simulation requests so that only one simulation runs at a time, preventing resource contention.",
+      "title": "Protocol-Level Step Ops in Test Runner",
+      "description": "As a developer, I want the test_runner to support protocol-level ops so that JSON test sequences can use fine-grained I2C steps.",
       "acceptanceCriteria": [
-        "An asyncio.Lock guards the simulation execution path",
-        "Concurrent requests wait in FIFO order (asyncio.Lock default behavior)",
-        "If a request waits longer than 120 seconds for the lock, it returns HTTP 503 with a clear message",
-        "The lock is released even if the simulation fails or times out",
-        "Typecheck passes"
+        "New ops in test_runner.py parse_step()/execute_step(): start (no params), stop (no params), repeated_start (no params), send_byte (data: int|hex-string), recv_byte (ack: bool)",
+        "Protocol steps are buffered until stop is encountered, then passed to ProtocolInterpreter.interpret() and executed via execute_transactions()",
+        "Each send_byte/recv_byte within a start..stop block gets its own result entry with status ok/fail and relevant data",
+        "Existing ops (reset, write_bytes, read_bytes, scan, delay) continue to work unchanged",
+        "Typecheck passes (mypy)"
       ],
       "dependsOn": ["US-003"],
       "sharedFiles": [
-        { "file": "backend/app/services/runner.py", "conflictType": "structural-modify", "reason": "Adds asyncio.Lock to SimulationService" }
+        { "file": "backend/sim/test_runner.py", "conflictType": "structural-modify", "reason": "Adding new op parsing and protocol buffering logic to parse_step/execute_step" }
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Use asyncio.wait_for with 120s timeout on lock acquisition. Ensure lock release in finally block."
+      "passes": false,
+      "notes": "Buffering strategy: when execute_step encounters op='start', it enters protocol-buffering mode. Subsequent steps (send_byte, recv_byte, repeated_start) are collected into a buffer. When op='stop' is encountered, the full buffer is passed to ProtocolInterpreter.interpret(), then I2CDriver.execute_transactions(). Results are mapped back: each send_byte/recv_byte gets its own step result.\n\nJSON example:\n  {\"steps\": [\n    {\"op\": \"reset\"},\n    {\"op\": \"start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA0\"},\n    {\"op\": \"send_byte\", \"data\": \"0x10\"},\n    {\"op\": \"repeated_start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA1\"},\n    {\"op\": \"recv_byte\", \"ack\": true},\n    {\"op\": \"recv_byte\", \"ack\": false},\n    {\"op\": \"stop\"}\n  ]}\n\nThe execute_step function will need a stateful context (or modify execute_sequence) to handle buffering across multiple step calls."
     },
     {
       "id": "US-005",
-      "title": "POST /api/run — Execute Simulation",
-      "description": "As an API consumer, I want to POST a JSON test sequence and receive the simulation results so that I can validate I2C behavior.",
+      "title": "Protocol Sequence Validation",
+      "description": "As a developer, I want protocol step sequences to be validated before execution so that malformed sequences produce clear error messages.",
       "acceptanceCriteria": [
-        "POST /api/run accepts a JSON body with a steps array (same format as Phase 1 JSON files)",
-        "Request body is validated: steps must be a non-empty list, each step must have a valid op",
-        "On success, returns HTTP 200 with the full result dict (passed, steps, register_dump, waveform_id)",
-        "waveform_id is a UUID string that can be used with GET /api/waveform/:id",
-        "On validation error, returns HTTP 422 with a descriptive error message",
-        "On simulation failure (timeout, crash), returns HTTP 500 with error details",
-        "On queue full/timeout, returns HTTP 503",
-        "Typecheck passes"
+        "Validation function validate_protocol_sequence(steps) -> list[str] in protocol_interpreter.py",
+        "Validates: every start has a matching stop or repeated_start before next start",
+        "Validates: send_byte/recv_byte only appear between start and stop/repeated_start",
+        "Validates: first send_byte after start is a valid address byte (0x00-0xFF)",
+        "Validates: recv_byte only in read mode (address byte LSB=1)",
+        "Validates: send_byte (after address byte) only in write mode (address byte LSB=0)",
+        "Returns list of human-readable error strings (empty = valid)",
+        "Backend returns 422 with validation errors if protocol sequence is invalid",
+        "Unit tests for each validation rule",
+        "Typecheck passes (mypy)"
       ],
-      "dependsOn": ["US-004", "US-009"],
+      "dependsOn": ["US-001"],
       "sharedFiles": [
-        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register simulation run route" },
-        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add POST /api/run endpoint" }
+        { "file": "backend/sim/protocol_interpreter.py", "conflictType": "append-only", "reason": "Adding validate_protocol_sequence function to existing module" }
       ],
-      "priority": 5,
-      "passes": true,
-      "notes": "Wire together SimulationService (with queue lock) and WaveformService. After simulation, copy VCD to waveform storage with UUID name. Return waveform_id in response."
+      "priority": 4,
+      "passes": false,
+      "notes": "This can run in parallel with US-004 since US-005 only adds a validation function to protocol_interpreter.py (append-only) while US-004 modifies test_runner.py.\n\nValidation should be called in the backend route handler (backend/app/routes/simulation.py) before passing steps to the test runner. If validation fails, return HTTP 422 with the error list.\n\nEdge cases to validate:\n- Empty sequence (no start/stop) → valid (just means no protocol steps)\n- start immediately followed by stop → invalid (no address byte)\n- Multiple starts without stop → invalid\n- recv_byte after send_byte(addr+W) → invalid (wrong mode)\n- send_byte after send_byte(addr+R) → invalid (should be recv_byte in read mode)"
     },
     {
       "id": "US-006",
-      "title": "GET /api/templates — List Test Templates",
-      "description": "As an API consumer, I want to list available test templates so that I can quickly run pre-built test sequences.",
+      "title": "Integration Test — Protocol Sequences via API",
+      "description": "As a developer, I want to verify protocol-level sequences work end-to-end through the FastAPI backend.",
       "acceptanceCriteria": [
-        "GET /api/templates returns a JSON array of template objects",
-        "Each template object has: id (filename without extension), name (from JSON metadata or filename), description (from JSON metadata or empty), step_count (number of steps)",
-        "Templates are loaded from backend/sim/templates/*.json (the Phase 1 template files)",
-        "Response is cached in memory (reloaded on restart)",
-        "Typecheck passes"
+        "New template JSON: backend/sim/templates/repeated_start_read.json — write register pointer → repeated start → read pattern",
+        "Test: POST /api/run with protocol-level steps returns correct results",
+        "Test: POST /api/run with mixed protocol + legacy ops in same sequence works",
+        "Test: POST /api/run with invalid protocol sequence returns 422 with error details",
+        "All tests pass"
       ],
-      "dependsOn": ["US-001"],
-      "sharedFiles": [
-        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register template routes" },
-        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add template list endpoint" }
-      ],
-      "priority": 2,
-      "passes": true,
-      "notes": "Load templates from backend/sim/templates/*.json. Cache the template list in memory on first access."
+      "dependsOn": ["US-004", "US-005"],
+      "sharedFiles": [],
+      "priority": 5,
+      "passes": false,
+      "notes": "Template JSON for repeated_start_read.json:\n  {\"name\": \"Repeated Start Read\", \"description\": \"Write register pointer then read via repeated start\", \"steps\": [\n    {\"op\": \"reset\"},\n    {\"op\": \"write_bytes\", \"addr\": \"0x50\", \"reg\": \"0x00\", \"data\": [\"0xDE\", \"0xAD\"]},\n    {\"op\": \"start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA0\"},\n    {\"op\": \"send_byte\", \"data\": \"0x00\"},\n    {\"op\": \"repeated_start\"},\n    {\"op\": \"send_byte\", \"data\": \"0xA1\"},\n    {\"op\": \"recv_byte\", \"ack\": true},\n    {\"op\": \"recv_byte\", \"ack\": false},\n    {\"op\": \"stop\"}\n  ]}\n\nMixed test: combine legacy write_bytes with protocol-level read via repeated start in one sequence."
     },
     {
       "id": "US-007",
-      "title": "GET /api/templates/:id — Get Template Detail",
-      "description": "As an API consumer, I want to fetch a specific template's full content so that I can inspect or submit it to /api/run.",
+      "title": "Protocol Control Nodes (Start, Stop, RepeatedStart)",
+      "description": "As a user, I want Start, Stop, and RepeatedStart nodes on the canvas so that I can control I2C bus protocol flow.",
       "acceptanceCriteria": [
-        "GET /api/templates/{template_id} returns the full JSON content of the template file",
-        "Returns HTTP 404 if the template ID does not match any file",
-        "Response includes the steps array ready to be submitted to POST /api/run",
-        "Typecheck passes"
+        "StartNode — displays 'START' label, green accent, one output handle (bottom), no input handle",
+        "StopNode — displays 'STOP' label, red accent, one input handle (top), no output handle",
+        "RepeatedStartNode — displays 'Sr' label, orange accent, one input handle (top), one output handle (bottom)",
+        "All three registered in nodeTypes map in frontend/src/components/nodes/index.ts",
+        "Sidebar updated with new 'Protocol' section showing these 3 node types as draggable items",
+        "Typecheck passes",
+        "Verify in browser: all 3 nodes render correctly with handles"
       ],
-      "dependsOn": ["US-006"],
+      "dependsOn": [],
       "sharedFiles": [
-        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add template detail endpoint" }
+        { "file": "frontend/src/components/nodes/index.ts", "conflictType": "append-only", "reason": "Registering new node types in nodeTypes map" },
+        { "file": "frontend/src/components/Sidebar.tsx", "conflictType": "structural-modify", "reason": "Adding Protocol section to sidebar layout" }
       ],
-      "priority": 3,
-      "passes": true,
-      "notes": ""
+      "priority": 1,
+      "passes": false,
+      "notes": "Create StartNode.tsx, StopNode.tsx, RepeatedStartNode.tsx in frontend/src/components/nodes/.\n\nSidebar layout update: add a divider and 'Protocol' section header below the existing 5 Basic node types. Sidebar items use HTML5 dataTransfer with node type string.\n\nNode type strings: 'i2c_start', 'i2c_stop', 'repeated_start'. Use 'i2c_start'/'i2c_stop' to avoid conflict with any React Flow internal 'start'/'stop' strings.\n\nStartNode is similar to ResetNode (no params, just label + output handle). StopNode is similar but input handle only. RepeatedStartNode has both handles.\n\nColors: Start=emerald/green, Stop=rose/red, RepeatedStart=orange/amber."
     },
     {
       "id": "US-008",
-      "title": "GET /api/waveform/:id — Download VCD",
-      "description": "As an API consumer, I want to download the VCD waveform file from a simulation run so that I can view it in a waveform viewer.",
+      "title": "Data Transfer Nodes (SendByte, RecvByte)",
+      "description": "As a user, I want SendByte and RecvByte nodes so that I can specify individual bytes in an I2C transaction.",
       "acceptanceCriteria": [
-        "GET /api/waveform/{waveform_id} returns the VCD file as application/octet-stream with Content-Disposition: attachment",
-        "Returns HTTP 404 if the waveform ID does not exist or has expired",
-        "VCD files are stored in a temp directory with UUID-based naming",
-        "Typecheck passes"
+        "SendByteNode — inline hex input for byte value (0x00-0xFF), purple accent, input handle (top), output handle (bottom)",
+        "SendByteNode displays auto-computed helper text when value looks like address byte: 'Addr: 0x{byte>>1} {R/W}'",
+        "RecvByteNode — ACK/NACK toggle (select), teal accent, input handle (top), output handle (bottom), read-only data field shown after simulation",
+        "Both registered in nodeTypes map",
+        "Sidebar Protocol section updated with these 2 node types",
+        "Default values: SendByte data=0xA0, RecvByte ack=true",
+        "Validation: SendByte data must be valid hex 0x00-0xFF",
+        "Typecheck passes",
+        "Verify in browser: both nodes render with correct fields"
       ],
-      "dependsOn": ["US-009"],
+      "dependsOn": ["US-007"],
       "sharedFiles": [
-        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register waveform route" },
-        { "file": "backend/app/routes/simulation.py", "conflictType": "append-only", "reason": "Add waveform download endpoint" }
+        { "file": "frontend/src/components/nodes/index.ts", "conflictType": "append-only", "reason": "Registering SendByte and RecvByte node types" },
+        { "file": "frontend/src/components/Sidebar.tsx", "conflictType": "append-only", "reason": "Adding 2 more items to Protocol section" }
       ],
-      "priority": 5,
-      "passes": true,
-      "notes": "Use FastAPI FileResponse with media_type='application/octet-stream'. Validate UUID format to prevent path traversal."
+      "priority": 2,
+      "passes": false,
+      "notes": "Create SendByteNode.tsx and RecvByteNode.tsx in frontend/src/components/nodes/.\n\nNode type strings: 'send_byte', 'recv_byte'.\n\nSendByteNode helper text logic: parse the hex value, if it's a plausible address byte (any valid hex), show decoded addr and R/W. Example: input '0xA0' → 'Addr: 0x50 W', input '0xA1' → 'Addr: 0x50 R'. This is always shown as helper text (the user decides if it's actually an address byte based on position in chain).\n\nRecvByteNode: the 'data' field is read-only and populated after simulation via node.data.receivedData (set by the status overlay logic in US-009's pattern). For now, just show an empty read-only field with placeholder 'After sim'.\n\nUse existing validate.ts pattern: validateHexByte(v) for SendByte validation. Add 'nodrag' class on inputs."
     },
     {
       "id": "US-009",
-      "title": "VCD Storage & TTL Cleanup",
-      "description": "As a backend service, I want VCD files to be automatically cleaned up after a TTL period so that disk space is not wasted.",
+      "title": "Serialization for Protocol-Level Nodes",
+      "description": "As a developer, I want the flow serializer to handle protocol-level nodes so that protocol sequences can be sent to the backend.",
       "acceptanceCriteria": [
-        "VCD files are stored in a configurable temp directory (default: system temp dir / i2c-sim-waveforms/)",
-        "Each simulation run creates a VCD file named {uuid}.vcd",
-        "A background task runs every 5 minutes to delete VCD files older than 30 minutes",
-        "The background task starts with the FastAPI app lifecycle (startup event)",
-        "TTL is configurable via environment variable VCD_TTL_MINUTES (default: 30)",
+        "serializeFlow updated to map: i2c_start→{op:'start'}, i2c_stop→{op:'stop'}, repeated_start→{op:'repeated_start'}, send_byte→{op:'send_byte',data:'0xNN'}, recv_byte→{op:'recv_byte',ack:bool}",
+        "Mixed flows with legacy + protocol nodes serialize correctly",
+        "Protocol nodes can coexist with legacy nodes in same flow (e.g., Reset → Start → SendByte → ... → Stop → Delay)",
+        "Unit tests: protocol-only chain, mixed chain, empty protocol section",
         "Typecheck passes"
       ],
-      "dependsOn": ["US-001"],
+      "dependsOn": ["US-008"],
       "sharedFiles": [
-        { "file": "backend/app/main.py", "conflictType": "append-only", "reason": "Register lifespan/startup event for cleanup task" }
+        { "file": "frontend/src/lib/serialize.ts", "conflictType": "structural-modify", "reason": "Adding new node type cases to mapNodeToStep switch" }
       ],
-      "priority": 2,
-      "passes": true,
-      "notes": "Create backend/app/services/waveform.py for VCD storage and cleanup logic. Use FastAPI lifespan context manager for the background cleanup task."
+      "priority": 3,
+      "passes": false,
+      "notes": "Update mapNodeToStep() in serialize.ts to handle the 5 new node types. The switch statement currently handles: reset, write, read, scan, delay. Add cases for: i2c_start, i2c_stop, repeated_start, send_byte, recv_byte.\n\nSendByte serialization: {op: 'send_byte', data: formatHex(node.data.data)}\nRecvByte serialization: {op: 'recv_byte', ack: node.data.ack}\nStart/Stop/RepeatedStart: just {op: '<name>'}, no additional fields.\n\nUpdate serialize.test.ts with new test cases. The serializeFlowWithOrder function should also work with the new types."
     },
     {
       "id": "US-010",
-      "title": "End-to-End Integration Test",
-      "description": "As a developer, I want integration tests that verify the full API flow so that I can confidently deploy.",
+      "title": "Protocol Sequence Visual Indicators",
+      "description": "As a user, I want visual feedback about protocol sequence validity on the canvas so that I can see errors before running.",
       "acceptanceCriteria": [
-        "Test file at backend/tests/test_api.py using httpx.AsyncClient with FastAPI's TestClient",
-        "Test: POST /api/run with a simple write+read sequence returns passed: true",
-        "Test: POST /api/run with invalid steps returns HTTP 422",
-        "Test: GET /api/templates returns a non-empty list",
-        "Test: GET /api/templates/{id} returns valid template content",
-        "Test: GET /api/waveform/{id} with valid ID returns a VCD file",
-        "Test: GET /api/waveform/{id} with invalid ID returns 404",
-        "Test: GET /api/health returns 200",
-        "Tests can run without iverilog installed (mock the subprocess call)",
-        "Tests pass",
-        "Typecheck passes"
+        "Start and Stop nodes show warning icon if unpaired (Start without Stop in chain, or vice versa)",
+        "SendByte/RecvByte nodes show warning if not between Start and Stop in the chain",
+        "First SendByte after Start shows decoded address + R/W direction as helper text",
+        "RecvByte shows warning if used in write mode (address byte LSB=0)",
+        "Validation runs on every flow change and results stored in node.data.warning",
+        "Typecheck passes",
+        "Verify in browser: warnings appear for invalid protocol sequences"
       ],
-      "dependsOn": ["US-005", "US-007", "US-008"],
-      "sharedFiles": [],
-      "priority": 6,
-      "passes": true,
-      "notes": "Mock asyncio.create_subprocess_exec to avoid needing iverilog/cocotb. Use httpx.AsyncClient for async test support."
+      "dependsOn": ["US-009"],
+      "sharedFiles": [
+        { "file": "frontend/src/App.tsx", "conflictType": "structural-modify", "reason": "Adding protocol validation logic that runs on flow change and updates node.data.warning" }
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Create a validateProtocolFlow(nodes, edges) function in frontend/src/lib/validate.ts (or a new protocol-validate.ts). This walks the serialized chain and checks:\n1. Every i2c_start has a matching i2c_stop (or chain ends)\n2. send_byte/recv_byte only between i2c_start and i2c_stop\n3. After i2c_start, first send_byte is address byte — decode and show R/W\n4. recv_byte only valid when address byte LSB=1 (read mode)\n5. send_byte (after addr) only valid when address byte LSB=0 (write mode)\n\nStore warnings in node.data.warning (string or null). Node components should render a yellow warning icon + tooltip when data.warning is truthy.\n\nCall validateProtocolFlow in FlowCanvas whenever nodes/edges change (same pattern as existing validation). Clear warnings when flow changes."
     }
   ]
 }

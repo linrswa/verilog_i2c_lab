@@ -133,3 +133,69 @@
 - Files changed: backend/app/routes/simulation.py
 - Learnings: shutil.copy2 preserves mtime (important for TTL cleanup). Module-level SimulationService singleton for lock sharing. Python 3.9 requires Optional[str] not str | None.
 ---
+
+## 2026-03-08T07:41+0800 - US-001: Project Setup with Bun + Vite + React + TypeScript
+- Scaffolded frontend/ with bun create vite --template react-ts. Added @xyflow/react, tailwindcss v4, @tailwindcss/vite. Configured Tailwind Vite plugin and CSS import. TypeScript strict mode confirmed.
+- Files changed: frontend/ (full scaffold: package.json, vite.config.ts, tsconfig.json, App.tsx, index.css, etc.)
+- Learnings: Tailwind v4 uses @tailwindcss/vite plugin (not PostCSS). CSS needs `@import "tailwindcss"` instead of v3 directives. bun create vite template ships with strict: true in tsconfig.app.json.
+---
+
+## 2026-03-08T07:43+0800 - US-002: Application Shell & Layout
+- Three-panel layout: Toolbar top, Sidebar (200px) + ReactFlow canvas (flex-1) middle, collapsible ResultPanel bottom. All 5 node types as draggable sidebar items with color accents.
+- Files changed: frontend/src/App.tsx, index.css, components/Sidebar.tsx, Toolbar.tsx, ResultPanel.tsx
+- Learnings: Vite default index.css fights full-viewport layout — needs complete reset. React Flow requires explicit height container (flex-1 relative). Tailwind v4 utility classes work directly, no @layer/@apply needed.
+---
+
+## 2026-03-08T07:45+0800 - US-003: Custom Node Components
+- Created 5 custom node components (Reset/Write/Read/Scan/Delay) with distinct colors, Handle components, controlled inputs. Barrel index.ts exports nodeTypes map. App.tsx updated with sample nodes.
+- Files changed: frontend/src/components/nodes/{ResetNode,WriteNode,ReadNode,ScanNode,DelayNode,index}.tsx, frontend/src/App.tsx
+- Learnings: React Flow v12 requires Node<TData> generics for NodeProps. `nodrag` CSS class on inputs prevents node dragging. `[key: string]: unknown` index signature needed for RF's NodeData constraint.
+---
+
+## 2026-03-08T07:48+0800 - US-004: Drag-and-Drop from Sidebar to Canvas
+- Rewrote App.tsx with FlowCanvas child component (needed for useReactFlow inside ReactFlowProvider). onDragOver/onDrop handlers, screenToFlowPosition for drop coordinates, unique IDs via ${type}-${Date.now()}.
+- Files changed: frontend/src/App.tsx
+- Learnings: useReactFlow() must be in a child of ReactFlowProvider. DragEvent comes from 'react', not '@xyflow/react'. bun run build (which runs tsc -b) is the correct typecheck command.
+---
+
+## 2026-03-08T07:48+0800 - US-006: Flow-to-JSON Serialization
+- Created serialize.ts with serializeFlow(), topological sort via DFS, formatHex helper. 14 unit tests via vitest. Added vitest dev dependency.
+- Files changed: frontend/src/lib/serialize.ts, serialize.test.ts, package.json, bun.lock
+- Learnings: vitest v4 works directly with Bun. tsconfig.app.json includes src/ so test files are typechecked automatically.
+---
+
+## 2026-03-08T07:55+0800 - US-005: Node Connection & Edge Management
+- Added edge state, onConnect with one-outgoing/one-incoming constraint (replaces existing conflicts). defaultEdgeOptions with smoothstep + ArrowClosed marker. deleteKeyCode for Delete/Backspace.
+- Files changed: frontend/src/App.tsx
+- Learnings: `as const` needed on defaultEdgeOptions for MarkerType narrowing. Handle IDs are null by default, so filter on sourceHandle/targetHandle being null works correctly.
+---
+
+## 2026-03-08T07:58+0800 - US-007: API Client & Run Execution
+- Created api.ts with runSimulation/fetchTemplates/getWaveformUrl. Updated App.tsx with run handler, error banner, result state. Updated ResultPanel with result display. Added /api proxy in vite.config.ts. Fixed tsconfig.app.json to exclude test files.
+- Files changed: frontend/src/lib/api.ts, App.tsx, ResultPanel.tsx, vite.config.ts, tsconfig.app.json
+- Learnings: Exclude *.test.ts from tsconfig.app.json (standard vitest pattern). hasConnectedChain = edges.length > 0 is sufficient.
+---
+
+## 2026-03-08T08:02+0800 - US-008: Result Panel — Step Results & Register Dump
+- Rewrote ResultPanel with auto-expand, pass/fail banner, per-step details, register dump 16x16 hex table, Download VCD button. Updated api.ts types.
+- Files changed: frontend/src/components/ResultPanel.tsx, frontend/src/lib/api.ts
+- Learnings: register_dump should be number[] not Record<string, unknown>. Worktrees need `bun install` before tsc.
+---
+
+## 2026-03-08T08:02+0800 - US-010: Template Loading
+- Created TemplateDropdown.tsx, added getTemplate to api.ts, added opToNodeType/stepToNodeData/templateToNodesAndEdges helpers in App.tsx. Toolbar updated with onLoadTemplate prop.
+- Files changed: frontend/src/App.tsx, components/TemplateDropdown.tsx, components/Toolbar.tsx, lib/api.ts
+- Learnings: TypeScript discriminated union narrowing works cleanly in switch(step.op). Date.now() in IDs for uniqueness.
+---
+
+## 2026-03-08T08:02+0800 - US-011: localStorage Flow Persistence
+- Created useFlowPersistence.ts with loadPersistedFlow, clearPersistedFlow, useFlowAutosave (500ms debounce). App.tsx uses lazy useState initializers. FlowCanvas restores viewport on mount. Toolbar has Clear button.
+- Files changed: frontend/src/lib/useFlowPersistence.ts, App.tsx, Toolbar.tsx
+- Learnings: loadPersistedFlow is a plain function (not hook) for use in useState initializer. fitView should be conditional when restoring saved viewport.
+---
+
+## 2026-03-08T08:02+0800 - US-012: Input Validation & UX Polish
+- Created validate.ts with validateHexAddr/Reg/DataList/PositiveInt. Updated Write/Read/Scan/Delay nodes with validation on input change. App.tsx checks nodesHaveErrors for isRunDisabled.
+- Files changed: frontend/src/lib/validate.ts, components/nodes/WriteNode.tsx, ReadNode.tsx, ScanNode.tsx, DelayNode.tsx, App.tsx
+- Learnings: errors stored as Record<string, string | undefined> in node.data.errors. type="text" better than type="number" for custom validation.
+---
