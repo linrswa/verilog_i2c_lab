@@ -15,9 +15,9 @@ const ROW_HEIGHT = 40
 const ROW_PADDING = 10
 
 /** Minimum panel height in pixels when expanded. */
-const PANEL_HEIGHT = 160
+const PANEL_HEIGHT = 200
 
-/** Signals to render by default (in order). */
+/** Signals enabled by default. */
 const DEFAULT_SIGNALS = ['sda', 'scl']
 
 // ── SVG path builder ──────────────────────────────────────────────────────────
@@ -142,6 +142,51 @@ function SignalRow({ name, changes, endTimePs, timeToX, rowIndex, svgWidth }: Si
   )
 }
 
+// ── Signal selector chip ───────────────────────────────────────────────────────
+
+interface SignalChipProps {
+  name: string
+  isSelected: boolean
+  onToggle: (name: string) => void
+}
+
+function SignalChip({ name, isSelected, onToggle }: SignalChipProps) {
+  return (
+    <button
+      onClick={() => onToggle(name)}
+      aria-pressed={isSelected}
+      title={isSelected ? `Hide ${name.toUpperCase()}` : `Show ${name.toUpperCase()}`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '2px 8px',
+        borderRadius: '9999px',
+        fontSize: '11px',
+        fontFamily: 'monospace',
+        fontWeight: 600,
+        border: '1.5px solid',
+        cursor: 'pointer',
+        transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+        background: isSelected ? '#4f46e5' : '#f3f4f6',
+        color: isSelected ? '#ffffff' : '#6b7280',
+        borderColor: isSelected ? '#4f46e5' : '#d1d5db',
+      }}
+    >
+      <span
+        style={{
+          width: '6px',
+          height: '6px',
+          borderRadius: '50%',
+          background: isSelected ? '#ffffff' : '#9ca3af',
+          flexShrink: 0,
+        }}
+      />
+      {name.toUpperCase()}
+    </button>
+  )
+}
+
 // ── WaveformPanel ─────────────────────────────────────────────────────────────
 
 interface WaveformPanelProps {
@@ -150,8 +195,9 @@ interface WaveformPanelProps {
 }
 
 /**
- * WaveformPanel renders digital square-wave SVG traces for I2C bus signals
- * (SDA and SCL by default) fetched from the backend after a simulation run.
+ * WaveformPanel renders digital square-wave SVG traces for I2C bus signals.
+ * SDA and SCL are shown by default; additional signals can be toggled via
+ * the signal selector bar above the waveform area.
  *
  * It sits below the ReactFlow canvas in the same flex column and is
  * collapsible via a toggle button.
@@ -163,6 +209,12 @@ export function WaveformPanel({ waveformId }: WaveformPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(800)
+
+  // All signal names returned by the API (preserved in insertion order)
+  const [availableSignals, setAvailableSignals] = useState<string[]>([])
+
+  // Which signals are currently enabled; order here determines render order
+  const [selectedSignals, setSelectedSignals] = useState<string[]>(DEFAULT_SIGNALS)
 
   // Measure container width for SVG scaling
   useEffect(() => {
@@ -178,11 +230,14 @@ export function WaveformPanel({ waveformId }: WaveformPanelProps) {
     return () => observer.disconnect()
   }, [])
 
-  // Fetch signal data whenever waveformId changes
+  // Fetch ALL signal data whenever waveformId changes (no filter — we need the
+  // full signal list to populate the selector)
   useEffect(() => {
     if (!waveformId) {
       setWaveformData(null)
       setError(null)
+      setAvailableSignals([])
+      setSelectedSignals(DEFAULT_SIGNALS)
       return
     }
 
@@ -192,9 +247,24 @@ export function WaveformPanel({ waveformId }: WaveformPanelProps) {
       setIsLoading(true)
       setError(null)
       try {
-        const data = await getWaveformSignals(waveformId!, DEFAULT_SIGNALS)
+        // Fetch all signals (no filter param) so we know what's available
+        const data = await getWaveformSignals(waveformId!)
         if (!cancelled) {
           setWaveformData(data)
+
+          const allNames = Object.keys(data.signals)
+          setAvailableSignals(allNames)
+
+          // Keep DEFAULT_SIGNALS that are actually present; add any extras that
+          // were already selected (e.g. from a previous run with same id).
+          setSelectedSignals((prev) => {
+            const defaultEnabled = DEFAULT_SIGNALS.filter((s) => allNames.includes(s))
+            // Preserve any previously selected extras that still exist
+            const extras = prev.filter(
+              (s) => !defaultEnabled.includes(s) && allNames.includes(s),
+            )
+            return [...defaultEnabled, ...extras]
+          })
         }
       } catch (err) {
         if (!cancelled) {
@@ -214,24 +284,38 @@ export function WaveformPanel({ waveformId }: WaveformPanelProps) {
     }
   }, [waveformId])
 
+  // Toggle a signal on/off.  When turning on, append to end (preserves order
+  // of activation).  When turning off, remove from list.
+  function handleToggleSignal(name: string) {
+    setSelectedSignals((prev) => {
+      if (prev.includes(name)) {
+        return prev.filter((s) => s !== name)
+      }
+      return [...prev, name]
+    })
+  }
+
   // Panel only appears when a waveform_id is available
   if (!waveformId) return null
 
-  // Determine which signals are present
-  const availableSignals = waveformData
-    ? DEFAULT_SIGNALS.filter((s) => s in waveformData.signals)
+  // Determine which selected signals are actually present in the data
+  const visibleSignals = waveformData
+    ? selectedSignals.filter((s) => s in waveformData.signals)
     : []
 
   const endTimePs = waveformData?.end_time ?? 0
   const waveformAreaWidth = containerWidth - LABEL_WIDTH
   const svgWidth = containerWidth
-  const svgHeight = availableSignals.length * ROW_HEIGHT
+  const svgHeight = visibleSignals.length * ROW_HEIGHT
 
   const timeToX = buildTimeToX({
     totalDurationPs: endTimePs,
     canvasWidthPx: waveformAreaWidth,
     originOffsetPx: LABEL_WIDTH,
   })
+
+  // Height for the panel body: selector bar (32px) + waveform area
+  const selectorBarHeight = 32
 
   return (
     <div
@@ -273,56 +357,79 @@ export function WaveformPanel({ waveformId }: WaveformPanelProps) {
 
       {/* Panel body */}
       {isExpanded && (
-        <div
-          ref={containerRef}
-          className="overflow-x-auto"
-          style={{ height: PANEL_HEIGHT - 36 }}
-        >
-          {isLoading && !waveformData && (
-            <div className="flex items-center justify-center h-full text-sm text-gray-400 italic">
-              Loading waveform data...
-            </div>
-          )}
-
-          {!isLoading && error && !waveformData && (
-            <div className="flex items-center justify-center h-full text-sm text-red-500 italic">
-              {error}
-            </div>
-          )}
-
-          {waveformData && availableSignals.length === 0 && (
-            <div className="flex items-center justify-center h-full text-sm text-gray-400 italic">
-              No SDA/SCL signals found in waveform data.
-            </div>
-          )}
-
-          {waveformData && availableSignals.length > 0 && (
-            <svg
-              width={svgWidth}
-              height={svgHeight}
-              style={{ display: 'block', minWidth: svgWidth }}
+        <>
+          {/* Signal selector bar */}
+          {availableSignals.length > 0 && (
+            <div
+              className="flex items-center gap-1.5 px-3 border-b border-gray-100 bg-gray-50"
+              style={{ height: selectorBarHeight, overflowX: 'auto', flexShrink: 0 }}
+              aria-label="Signal selector"
             >
-              {/* Background */}
-              <rect x={0} y={0} width={svgWidth} height={svgHeight} fill="#ffffff" />
-
-              {/* Signal rows */}
-              {availableSignals.map((signalName, rowIndex) => {
-                const sigData = waveformData.signals[signalName]
-                return (
-                  <SignalRow
-                    key={signalName}
-                    name={signalName}
-                    changes={sigData.changes}
-                    endTimePs={endTimePs}
-                    timeToX={timeToX}
-                    rowIndex={rowIndex}
-                    svgWidth={svgWidth}
-                  />
-                )
-              })}
-            </svg>
+              <span className="text-xs text-gray-400 mr-1 whitespace-nowrap">Signals:</span>
+              {availableSignals.map((name) => (
+                <SignalChip
+                  key={name}
+                  name={name}
+                  isSelected={selectedSignals.includes(name)}
+                  onToggle={handleToggleSignal}
+                />
+              ))}
+            </div>
           )}
-        </div>
+
+          <div
+            ref={containerRef}
+            className="overflow-x-auto"
+            style={{ height: PANEL_HEIGHT - 36 - (availableSignals.length > 0 ? selectorBarHeight : 0) }}
+          >
+            {isLoading && !waveformData && (
+              <div className="flex items-center justify-center h-full text-sm text-gray-400 italic">
+                Loading waveform data...
+              </div>
+            )}
+
+            {!isLoading && error && !waveformData && (
+              <div className="flex items-center justify-center h-full text-sm text-red-500 italic">
+                {error}
+              </div>
+            )}
+
+            {waveformData && visibleSignals.length === 0 && (
+              <div className="flex items-center justify-center h-full text-sm text-gray-400 italic">
+                {selectedSignals.length === 0
+                  ? 'No signals selected. Use the selector above to add signals.'
+                  : 'No matching signals found in waveform data.'}
+              </div>
+            )}
+
+            {waveformData && visibleSignals.length > 0 && (
+              <svg
+                width={svgWidth}
+                height={svgHeight}
+                style={{ display: 'block', minWidth: svgWidth }}
+              >
+                {/* Background */}
+                <rect x={0} y={0} width={svgWidth} height={svgHeight} fill="#ffffff" />
+
+                {/* Signal rows */}
+                {visibleSignals.map((signalName, rowIndex) => {
+                  const sigData = waveformData.signals[signalName]
+                  return (
+                    <SignalRow
+                      key={signalName}
+                      name={signalName}
+                      changes={sigData.changes}
+                      endTimePs={endTimePs}
+                      timeToX={timeToX}
+                      rowIndex={rowIndex}
+                      svgWidth={svgWidth}
+                    />
+                  )
+                })}
+              </svg>
+            )}
+          </div>
+        </>
       )}
     </div>
   )
