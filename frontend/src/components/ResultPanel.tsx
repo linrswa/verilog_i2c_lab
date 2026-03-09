@@ -87,39 +87,7 @@ function EepromDump({ dump, regPointer }: { dump: Record<string, number>; regPoi
   )
 }
 
-// ─── Step detail renderer ─────────────────────────────────────────────────────
-
-function stepDetails(step: StepResult): string {
-  switch (step.op) {
-    case 'send_byte': {
-      const parts: string[] = []
-      if (typeof step.data === 'string') {
-        parts.push(`TX ${step.data}`)
-      }
-      if (step.addr) {
-        parts.push(`(Addr ${step.addr} ${step.rw ?? ''})`)
-      }
-      parts.push(step.passed ? 'ACK' : 'NACK')
-      return parts.join(' ')
-    }
-    case 'recv_byte': {
-      const parts: string[] = []
-      if (typeof step.data === 'string') {
-        parts.push(`RX ${step.data}`)
-      } else {
-        parts.push('RX --')
-      }
-      if (typeof step.ack === 'boolean') {
-        parts.push(step.ack ? 'ACK' : 'NACK')
-      }
-      return parts.join(' ')
-    }
-    default:
-      return ''
-  }
-}
-
-// ─── Step row ─────────────────────────────────────────────────────────────────
+// ─── Step table helpers ───────────────────────────────────────────────────────
 
 /** Human-readable label for each op */
 function opLabel(op: string): string {
@@ -133,41 +101,91 @@ function opLabel(op: string): string {
   }
 }
 
-function StepRow({ step, index }: { step: StepResult; index: number }) {
-  const details = stepDetails(step)
-  const isPassed = step.passed
+/**
+ * Break a step into { master, slave } columns based on I2C protocol roles.
+ *
+ * - START / STOP / Sr → master-initiated bus conditions, slave is empty.
+ * - SEND (send_byte)  → master transmits data, slave responds with ACK/NACK.
+ * - RECV (recv_byte)  → slave transmits data, master responds with ACK/NACK.
+ */
+function stepColumns(step: StepResult): { master: string; slave: string } {
+  switch (step.op) {
+    case 'start':
+    case 'stop':
+    case 'repeated_start':
+      return { master: '', slave: '' }
 
+    case 'send_byte': {
+      // Master sends the byte
+      const parts: string[] = []
+      if (typeof step.data === 'string') {
+        parts.push(step.data)
+      }
+      if (step.addr) {
+        parts.push(`(Addr ${step.addr} ${step.rw ?? ''})`)
+      }
+      const master = parts.join(' ')
+      const slave = step.passed ? 'ACK' : 'NACK'
+      return { master, slave }
+    }
+
+    case 'recv_byte': {
+      // Slave sends the byte, master sends ACK/NACK
+      const slaveData = typeof step.data === 'string' ? step.data : '--'
+      const masterAck = typeof step.ack === 'boolean'
+        ? (step.ack ? 'ACK' : 'NACK')
+        : ''
+      return { master: masterAck, slave: slaveData }
+    }
+
+    default:
+      return { master: '', slave: '' }
+  }
+}
+
+function StepTable({ steps }: { steps: StepResult[] }) {
   return (
-    <div
-      className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs font-mono ${
-        isPassed
-          ? 'bg-green-50 text-green-800'
-          : 'bg-red-100 text-red-800'
-      }`}
-    >
-      {/* Status dot */}
-      <span
-        className={`w-2 h-2 rounded-full flex-shrink-0 ${
-          isPassed ? 'bg-green-500' : 'bg-red-500'
-        }`}
-      />
-
-      {/* Step index */}
-      <span className="text-gray-400 w-5 flex-shrink-0">{index}</span>
-
-      {/* Operation label */}
-      <span className="font-semibold w-16 flex-shrink-0">{opLabel(step.op)}</span>
-
-      {/* Details (TX/RX data, ACK/NACK, address decode) */}
-      {details && <span className="opacity-90">{details}</span>}
-
-      {/* Error message */}
-      {step.message && (
-        <span className="text-red-600 ml-auto truncate max-w-xs" title={step.message}>
-          {step.message}
-        </span>
-      )}
-    </div>
+    <table className="w-full text-xs font-mono border-collapse">
+      <thead>
+        <tr className="text-gray-500 border-b border-gray-200">
+          <th className="w-4 px-1 py-1 text-left" />
+          <th className="w-5 px-1 py-1 text-right">#</th>
+          <th className="w-14 px-2 py-1 text-left">Op</th>
+          <th className="px-2 py-1 text-left">Master</th>
+          <th className="px-2 py-1 text-left">Slave</th>
+        </tr>
+      </thead>
+      <tbody>
+        {steps.map((step, idx) => {
+          const isPassed = step.passed
+          const { master, slave } = stepColumns(step)
+          return (
+            <tr
+              key={idx}
+              className={isPassed ? 'bg-green-50 text-green-800' : 'bg-red-100 text-red-800'}
+              title={step.message ?? undefined}
+            >
+              {/* Status dot */}
+              <td className="px-1 py-1.5">
+                <span
+                  className={`inline-block w-2 h-2 rounded-full ${
+                    isPassed ? 'bg-green-500' : 'bg-red-500'
+                  }`}
+                />
+              </td>
+              {/* Index */}
+              <td className="px-1 py-1.5 text-right text-gray-400">{idx}</td>
+              {/* Op label */}
+              <td className="px-2 py-1.5 font-semibold">{opLabel(step.op)}</td>
+              {/* Master column */}
+              <td className="px-2 py-1.5">{master}</td>
+              {/* Slave column */}
+              <td className="px-2 py-1.5">{slave}</td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
   )
 }
 
@@ -266,13 +284,9 @@ export function ResultPanel({ result, width }: ResultPanelProps) {
                   {result.passed ? 'PASS' : 'FAIL'}
                 </div>
 
-                {/* Per-step results */}
+                {/* Per-step results — 3-column table */}
                 {result.steps.length > 0 && (
-                  <div className="space-y-1">
-                    {result.steps.map((step, idx) => (
-                      <StepRow key={idx} step={step} index={idx} />
-                    ))}
-                  </div>
+                  <StepTable steps={result.steps} />
                 )}
 
               </div>

@@ -31,16 +31,17 @@ delay
     cycles : int                — number of clock cycles to wait
 
 start
-    No additional parameters.  Marks the beginning of a protocol-level
-    sequence; subsequent steps are buffered until ``stop``.
+    No additional parameters.  Marks the beginning of an I2C transfer;
+    subsequent steps are accumulated until ``stop``.
 
 stop
-    No additional parameters.  Marks the end of a protocol-level sequence;
-    triggers execution of the buffered steps via ProtocolInterpreter.
+    No additional parameters.  Marks the end of an I2C transfer;
+    triggers execution of the accumulated steps via ProtocolInterpreter.
 
 repeated_start
-    No additional parameters.  Ends the current transaction group with a
-    repeated START (no STOP) and begins a new group within the same buffer.
+    No additional parameters.  Ends the current transaction with a
+    repeated START (Sr) instead of STOP and begins a new transaction
+    within the same transfer.
 
 send_byte
     data : int | hex-string     — raw byte to send (0x00-0xFF).  The first
@@ -51,9 +52,10 @@ recv_byte
     ack  : bool                 — True = send ACK to slave (more bytes follow),
                                   False = send NACK (last byte in read).
 
-Protocol-level ops are buffered between ``start`` and ``stop`` markers.
-The full buffer is passed to ``ProtocolInterpreter.interpret()`` and executed
-via ``I2CDriver.execute_transactions()``.  Each ``send_byte`` and ``recv_byte``
+Protocol-level ops are accumulated between ``start`` and ``stop`` markers
+to form a complete I2C transfer.  The transfer is passed to
+``ProtocolInterpreter.interpret()`` and executed via
+``I2CDriver.execute_transactions()``.  Each ``send_byte`` and ``recv_byte``
 produces its own result entry with ``status: "ok" | "fail"`` and relevant data.
 
 Hex string parsing
@@ -227,7 +229,7 @@ VALID_OPS = frozenset(
     }
 )
 
-#: Protocol-level ops that are buffered until a ``stop`` is encountered.
+#: Protocol-level ops that form I2C transfers (accumulated from START to STOP).
 PROTOCOL_OPS = frozenset({"start", "stop", "repeated_start", "send_byte", "recv_byte"})
 
 
@@ -392,8 +394,8 @@ async def execute_step(driver: I2CDriver, step: dict) -> dict:
 
         elif op in PROTOCOL_OPS:
             # Protocol-level ops must be executed via execute_sequence() which
-            # handles buffering.  Calling execute_step() directly for these ops
-            # is not supported.
+            # handles transfer accumulation.  Calling execute_step() directly
+            # for these ops is not supported.
             raise ValueError(
                 f"Protocol op '{op}' cannot be executed in isolation — "
                 f"protocol steps must be run via execute_sequence() so that "
@@ -455,41 +457,43 @@ async def execute_step(driver: I2CDriver, step: dict) -> dict:
 
 
 def _map_protocol_results(
-    buffered_steps: list[dict],
+    transfer_steps: list[dict],
     txn_results: list,
 ) -> list[dict]:
     """Map TxnResult objects back to per-step result dicts.
 
-    Every step in *buffered_steps* (including ``start``, ``stop``, and
+    Every step in *transfer_steps* (including ``start``, ``stop``, and
     ``repeated_start``) produces a result entry with its own
-    ``time_range_ps`` derived from the per-byte timestamps recorded by
+    ``time_range_ps`` derived from the per-frame timestamps recorded by
     the driver.
 
     Timing layout within a transaction::
 
         txn.start_time_ps                                 txn.end_time_ps
-        |-- start --|-- byte0 --|-- byte1 --|-- ... --|--(stop/rs)--|
-                    ^           ^
+        |-- start --|-- frame0 --|-- frame1 --|-- ... --|--(stop/Sr)--|
+                    ^            ^
                 byte_end[0]  byte_end[1]
 
-    - ``start`` / ``repeated_start``: from txn start to first byte end
-      (or txn end if no bytes).
-    - Each ``send_byte`` / ``recv_byte``: between consecutive byte-end
-      timestamps.
-    - ``stop``: from last byte end of last txn to overall end.
+    - ``start`` / ``repeated_start``: from transaction start to first
+      frame end (or transaction end if no frames).
+    - Each ``send_byte`` / ``recv_byte``: one frame — between consecutive
+      frame-end timestamps.
+    - ``stop``: from last frame end of last transaction to overall end.
 
     Parameters
     ----------
-    buffered_steps:
-        Normalised steps from a start..stop block (inclusive of start and stop).
+    transfer_steps:
+        Normalised steps from a complete I2C transfer (START to STOP,
+        inclusive).  A transfer may contain multiple transactions
+        separated by repeated START (Sr) conditions.
     txn_results:
-        TxnResult list returned by I2CDriver.execute_transactions(), one entry
-        per Transaction produced by ProtocolInterpreter.interpret().
+        TxnResult list returned by I2CDriver.execute_transactions(), one
+        entry per Transaction produced by ProtocolInterpreter.interpret().
 
     Returns
     -------
     list[dict]
-        One result dict per step in *buffered_steps*.
+        One result dict per step in *transfer_steps*.
     """
     step_results: list[dict] = []
     txn_idx = 0            # current index into txn_results
@@ -514,7 +518,7 @@ def _map_protocol_results(
         t1 = times[byte_idx] if byte_idx < len(times) else tr.end_time_ps
         return [t0, t1]
 
-    for step in buffered_steps:
+    for step in transfer_steps:
         op = step["op"]
 
         if op == "start":
@@ -617,11 +621,15 @@ async def execute_sequence(
     """Execute all steps in *steps* sequentially and collect results.
 
     Protocol-level ops (``start``, ``send_byte``, ``recv_byte``,
-    ``repeated_start``, ``stop``) are buffered between ``start`` and ``stop``
-    markers.  When a ``stop`` is encountered the full buffer is passed to
-    :class:`ProtocolInterpreter` and executed via
-    :meth:`I2CDriver.execute_transactions`.  Each ``send_byte`` and
-    ``recv_byte`` within the buffer gets its own result entry.
+    ``repeated_start``, ``stop``) are accumulated between ``start`` and
+    ``stop`` markers to form a complete I2C transfer.  When ``stop`` is
+    encountered the transfer is passed to :class:`ProtocolInterpreter`
+    and executed via :meth:`I2CDriver.execute_transactions`.  Each
+    ``send_byte`` and ``recv_byte`` within the transfer gets its own
+    result entry.
+
+    A single transfer (START → ... → STOP) may contain multiple
+    transactions separated by repeated START (Sr) conditions.
 
     Legacy ops (``reset``, ``write_bytes``, ``read_bytes``, ``scan``,
     ``delay``) continue to execute immediately via :func:`execute_step`.
@@ -636,40 +644,41 @@ async def execute_sequence(
     Returns
     -------
     list[dict]
-        List of per-step result dicts in the same order as *steps* (protocol
-        buffers are expanded — every step including start/stop/repeated_start
+        List of per-step result dicts in the same order as *steps*
+        (transfers are expanded — every step including start/stop/Sr
         produces one entry).
     """
     results: list[dict] = []
-    # Buffer accumulates steps from a ``start`` until the matching ``stop``.
-    protocol_buffer: list[dict] = []
-    in_protocol = False
+    # Accumulates steps from START until the matching STOP to form a
+    # complete I2C transfer.
+    transfer_buf: list[dict] = []
+    in_transfer = False
 
     for step in steps:
         op = step["op"]
 
         if op == "start":
-            # Begin buffering a new protocol sequence.
-            in_protocol = True
-            protocol_buffer = [step]
+            # Begin accumulating a new I2C transfer.
+            in_transfer = True
+            transfer_buf = [step]
 
-        elif in_protocol:
-            protocol_buffer.append(step)
+        elif in_transfer:
+            transfer_buf.append(step)
 
             if op == "stop":
-                # End of protocol sequence — interpret and execute.
-                in_protocol = False
+                # End of transfer — interpret and execute.
+                in_transfer = False
                 try:
                     interpreter = ProtocolInterpreter()
-                    txns = interpreter.interpret(protocol_buffer)
+                    txns = interpreter.interpret(transfer_buf)
                     txn_results = await driver.execute_transactions(txns)
-                    proto_results = _map_protocol_results(
-                        protocol_buffer, txn_results
+                    transfer_results = _map_protocol_results(
+                        transfer_buf, txn_results
                     )
-                    results.extend(proto_results)
+                    results.extend(transfer_results)
                 except Exception as exc:  # noqa: BLE001
-                    # On any error, emit one error entry per step in buffer.
-                    for buf_step in protocol_buffer:
+                    # On any error, emit one error entry per step in transfer.
+                    for buf_step in transfer_buf:
                         results.append(
                             {
                                 "op": buf_step["op"],
@@ -677,7 +686,7 @@ async def execute_sequence(
                                 "message": str(exc),
                             }
                         )
-                protocol_buffer = []
+                transfer_buf = []
 
         else:
             # Legacy op — execute immediately.
