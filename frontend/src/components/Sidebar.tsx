@@ -18,10 +18,17 @@ interface NodePaletteItemProps extends NodeType {
 }
 
 function NodePaletteItem({ type, label, color, description, onAdd }: NodePaletteItemProps) {
+  const onDragStart = (event: React.DragEvent) => {
+    event.dataTransfer.setData('application/reactflow-nodetype', type)
+    event.dataTransfer.effectAllowed = 'move'
+  }
+
   return (
     <button
+      draggable
+      onDragStart={onDragStart}
       onClick={() => onAdd(type)}
-      className="flex items-center gap-2 px-3 py-2 rounded-md bg-white border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 transition-all select-none text-left w-full cursor-pointer"
+      className="flex items-center gap-2 px-3 py-2 rounded-md bg-white border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 transition-all select-none text-left w-full cursor-grab active:cursor-grabbing"
       title={description}
     >
       <span

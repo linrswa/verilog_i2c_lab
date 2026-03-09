@@ -5,10 +5,12 @@ import {
   Background,
   Controls,
   applyNodeChanges,
+  applyEdgeChanges,
+  addEdge,
   MarkerType,
   useReactFlow,
 } from '@xyflow/react'
-import type { Node, Edge, NodeTypes, NodeChange, EdgeChange, OnNodeDrag } from '@xyflow/react'
+import type { Node, Edge, NodeTypes, NodeChange, EdgeChange, OnNodeDrag, Connection } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
 import { Toolbar } from './components/Toolbar'
@@ -205,6 +207,8 @@ function FlowCanvas({
   onEdgesChange,
   onNodeDrag,
   onNodeDragStop,
+  onDropNode,
+  onConnect,
   initialViewportRestored,
   onViewportRestored,
 }: {
@@ -214,10 +218,12 @@ function FlowCanvas({
   onEdgesChange: (changes: EdgeChange[]) => void
   onNodeDrag: OnNodeDrag
   onNodeDragStop: OnNodeDrag
+  onDropNode: (nodeType: string, position: { x: number; y: number }) => void
+  onConnect: (connection: Connection) => void
   initialViewportRestored: boolean
   onViewportRestored: () => void
 }) {
-  const { setViewport, getViewport } = useReactFlow()
+  const { setViewport, getViewport, screenToFlowPosition } = useReactFlow()
 
   // Restore saved viewport once — on first mount, after ReactFlow has initialised
   useEffect(() => {
@@ -233,6 +239,23 @@ function FlowCanvas({
   // Auto-save nodes/edges/viewport to localStorage (debounced 500 ms)
   useFlowAutosave(nodes, edges, getViewport)
 
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+  }, [])
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault()
+      const nodeType = event.dataTransfer.getData('application/reactflow-nodetype')
+      if (!nodeType) return
+
+      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      onDropNode(nodeType, position)
+    },
+    [screenToFlowPosition, onDropNode],
+  )
+
   return (
     <div className="flex-1 relative">
       <ReactFlow
@@ -243,9 +266,12 @@ function FlowCanvas({
         onEdgesChange={onEdgesChange}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
+        onConnect={onConnect}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
         defaultEdgeOptions={defaultEdgeOptions}
         deleteKeyCode={['Delete', 'Backspace']}
-        nodesConnectable={false}
+        nodesConnectable={true}
         nodesDraggable={true}
         fitView={!loadPersistedFlow()}
       >
@@ -368,10 +394,39 @@ export default function App() {
       setNodes((nds) => {
         const updated = applyNodeChanges(changes, nds)
         if (hasRemoval) {
-          // Only re-layout and rebuild edges on deletion
-          const laid = applyVerticalLayout(updated)
-          setEdges(buildAutoEdges(laid))
-          return laid
+          // Reconnect edges around deleted nodes (bridge the gap) without re-layout.
+          const removedIds = new Set(
+            changes.filter((c) => c.type === 'remove').map((c) => c.id),
+          )
+          setEdges((currentEdges) => {
+            // Build a map: for each removed node, find its predecessor and successor
+            const newEdges: Edge[] = []
+            const incomingOf = new Map<string, string>() // target → source
+            const outgoingOf = new Map<string, string>() // source → target
+            for (const e of currentEdges) {
+              incomingOf.set(e.target, e.source)
+              outgoingOf.set(e.source, e.target)
+            }
+            // Bridge: connect predecessor → successor for each removed node
+            for (const id of removedIds) {
+              const pred = incomingOf.get(id)
+              const succ = outgoingOf.get(id)
+              if (pred && succ && !removedIds.has(pred) && !removedIds.has(succ)) {
+                newEdges.push({
+                  id: `e-${pred}-${succ}`,
+                  source: pred,
+                  target: succ,
+                  type: 'smoothstep',
+                  markerEnd: { type: MarkerType.ArrowClosed },
+                })
+              }
+            }
+            // Keep edges not involving removed nodes + add bridge edges
+            const kept = currentEdges.filter(
+              (e) => !removedIds.has(e.source) && !removedIds.has(e.target),
+            )
+            return [...kept, ...newEdges]
+          })
         }
         return updated
       })
@@ -379,10 +434,19 @@ export default function App() {
     [clearNodeStatuses],
   )
 
-  // Edges are fully managed by auto-layout — ignore external edge change events.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const onEdgesChange = useCallback((_changes: EdgeChange[]) => {
-    // no-op: edges are derived from node order via buildAutoEdges
+  // Apply edge changes (select, remove, etc.) so users can delete edges.
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    setEdges((eds) => applyEdgeChanges(changes, eds))
+  }, [])
+
+  // Handle manual edge connections drawn by the user.
+  const onConnect = useCallback((connection: Connection) => {
+    setEdges((eds) =>
+      addEdge(
+        { ...connection, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } },
+        eds,
+      ),
+    )
   }, [])
 
   /**
@@ -418,20 +482,31 @@ export default function App() {
   }, [])
 
   /**
-   * On drag end: reorder the nodes array based on x-position and rebuild edges,
-   * but keep nodes at their current (freely dragged) positions.
+   * On drag end: keep nodes at their freely-dragged positions.
+   * Do not re-sort or rebuild edges — the user controls layout manually.
    */
-  const onNodeDragStop: OnNodeDrag = useCallback((_event, draggedNode) => {
-    setNodes((nds) => {
-      const draggedIdx = nds.findIndex((n) => n.id === draggedNode.id)
-      if (draggedIdx === -1) return nds
-
-      // Sort nodes by y-position to determine logical order for edges
-      const sorted = [...nds].sort((a, b) => a.position.y - b.position.y)
-      setEdges(buildAutoEdges(sorted))
-      return sorted
-    })
+  const onNodeDragStop: OnNodeDrag = useCallback((_event, _draggedNode) => {
+    // No-op: nodes stay where they were dragged, edges remain unchanged.
   }, [])
+
+  /**
+   * Handle drop from sidebar: create a new node at the drop position.
+   * No auto-layout, no auto-connect — the node is placed freely on the canvas.
+   */
+  const handleDropNode = useCallback(
+    (nodeType: string, position: { x: number; y: number }) => {
+      clearNodeStatuses()
+      setSimulationResult(null)
+      const newNode: Node = {
+        id: `${nodeType}-${Date.now()}`,
+        type: nodeType,
+        position,
+        data: buildDefaultData(nodeType),
+      }
+      setNodes((nds) => [...nds, newNode])
+    },
+    [clearNodeStatuses],
+  )
 
   // Clear button: reset canvas state and remove persisted flow
   const handleClear = useCallback(() => {
@@ -554,6 +629,8 @@ export default function App() {
                 onEdgesChange={onEdgesChange}
                 onNodeDrag={onNodeDrag}
                 onNodeDragStop={onNodeDragStop}
+                onDropNode={handleDropNode}
+                onConnect={onConnect}
                 initialViewportRestored={viewportRestored}
                 onViewportRestored={() => setViewportRestored(true)}
               />
