@@ -4,6 +4,10 @@ Interactive I2C protocol simulation platform — build I2C sequences on a visual
 
 **[中文版 README](README.zh-TW.md)**
 
+<p align="center">
+  <img src="demo.gif" alt="I2C Demo" width="800">
+</p>
+
 [Overview](#overview) | [Getting Started](#getting-started) | [Project Structure](#project-structure) | [Frontend](#frontend) | [Backend API](#backend-api) | [RTL Design](#rtl-design) | [Testing](#testing)
 
 ---

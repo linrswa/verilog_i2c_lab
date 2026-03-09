@@ -4,6 +4,10 @@
 
 **[English README](README.md)**
 
+<p align="center">
+  <img src="demo.gif" alt="I2C Demo" width="800">
+</p>
+
 [概述](#概述) | [快速開始](#快速開始) | [專案結構](#專案結構) | [前端介面](#前端介面) | [後端 API](#後端-api) | [RTL 硬體設計](#rtl-硬體設計) | [測試](#測試)
 
 ---
