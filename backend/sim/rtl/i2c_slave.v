@@ -18,6 +18,12 @@ module i2c_slave (
     inout wire sda   // I2C data（open-drain, bidirectional）
 );
     reg [7:0] register_file[0:255];  // 256 個 8-bit register
+    // 初始化 register file，避免讀取未寫入的 register 時產生 X
+    integer rf_i;
+    initial begin
+        for (rf_i = 0; rf_i < 256; rf_i = rf_i + 1)
+            register_file[rf_i] = 8'h00;
+    end
     reg [7:0] slave_addr_recive;
     reg [7:0] shift_reg;           // 接收中的 byte 暫存器
     reg sda_oe;
@@ -59,6 +65,7 @@ module i2c_slave (
             shift_reg <= 0;
             write_valid <= 0;
             sda_oe <= 0;
+            first_byte_received <= 0;
 
             bit_cnt <= 0;
             sda_prev <= 1;
