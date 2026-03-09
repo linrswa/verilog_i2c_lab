@@ -24,26 +24,27 @@
 ```
 ┌──────────────────────────────────────────┐
 │            Frontend (React)              │
-│  ┌──────┬───────────────┬──────────────┐ │
-│  │Sidebar│  React Flow   │ Result Panel │ │
-│  │節點面板│  畫布 (垂直排列) │  步驟結果    │ │
-│  ├──────┴───────────────┴──────────────┤ │
+│  ┌───────┬──────────────┬──────────────┐ │
+│  │Sidebar│  React Flow  │ Result Panel │ │
+│  │ Node  │  Canvas      │ Step Results │ │
+│  │Palette│  (vertical)  │ + EEPROM     │ │
+│  ├───────┴──────────────┴──────────────┤ │
 │  │        WaveformPanel (SVG)          │ │
-│  │   SDA/SCL 波形 + 步驟區段疊加層      │ │
+│  │   SDA/SCL traces + step overlays    │ │
 │  └─────────────────────────────────────┘ │
 └──────────────────┬───────────────────────┘
                    │ HTTP API (JSON)
                    ▼
 ┌──────────────────────────────────────────┐
 │          Backend (FastAPI)               │
-│   接收序列 → 驗證 → 排程模擬 → VCD 解析  │
+│   Validate → Queue → Simulate → Parse    │
 └──────────────────┬───────────────────────┘
                    │ subprocess
                    ▼
 ┌──────────────────────────────────────────┐
 │        Simulation (cocotb 2.0)           │
 │  Protocol Interpreter → I2C Driver       │
-│  per-step timing 記錄 → 波形對齊          │
+│  Per-step timing capture → waveform sync │
 └──────────────────┬───────────────────────┘
                    │
                    ▼
