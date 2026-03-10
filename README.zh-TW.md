@@ -243,7 +243,7 @@ curl -X POST http://localhost:8000/api/run \
 
 ### I2C Master (`i2c_master.v`)
 
-- 完整狀態機（100+ 狀態），支援 clock stretching 與 Repeated Start
+- 8 狀態 FSM（`IDLE`, `START`, `ADDR`, `WRITE`, `READ`, `ACK`, `REPEATED_START`, `STOP`），支援 clock stretching 與 Repeated Start
 - 可設定時脈除頻器（預設 50 system clocks per I2C phase）
 
 ### I2C Slave (`i2c_slave.v`)

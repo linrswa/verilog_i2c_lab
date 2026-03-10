@@ -243,7 +243,7 @@ The response includes `register_dump` (EEPROM contents), `reg_pointer` (current 
 
 ### I2C Master (`i2c_master.v`)
 
-- Full state machine (100+ states) with clock stretching and Repeated Start support
+- 8-state FSM (`IDLE`, `START`, `ADDR`, `WRITE`, `READ`, `ACK`, `REPEATED_START`, `STOP`) with clock stretching and Repeated Start support
 - Configurable clock divider (default: 50 system clocks per I2C phase)
 
 ### I2C Slave (`i2c_slave.v`)
