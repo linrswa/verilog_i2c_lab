@@ -295,6 +295,7 @@ dependencies = [
     { name = "python-multipart", version = "0.0.22", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "uvicorn", version = "0.39.0", source = { registry = "https://pypi.org/simple" }, extra = ["standard"], marker = "python_full_version < '3.10'" },
     { name = "uvicorn", version = "0.41.0", source = { registry = "https://pypi.org/simple" }, extra = ["standard"], marker = "python_full_version >= '3.10'" },
+    { name = "vcdvcd" },
 ]
 
 [package.optional-dependencies]
@@ -316,6 +317,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29.0" },
+    { name = "vcdvcd", specifier = ">=2.0.0" },
 ]
 provides-extras = ["dev"]
 
@@ -1100,6 +1102,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d5/9a/733fcb815d345979fc54d3cdc3eb50bc75a47da3e4003ea7ada58e6daa65/uvloop-0.22.1-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:17d4e97258b0172dfa107b89aa1eeba3016f4b1974ce85ca3ef6a66b35cbf659", size = 3685477, upload-time = "2025-10-16T22:17:15.307Z" },
     { url = "https://files.pythonhosted.org/packages/83/fb/bee1eb11cc92bd91f76d97869bb6a816e80d59fd73721b0a3044dc703d9c/uvloop-0.22.1-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:05e4b5f86e621cf3927631789999e697e58f0d2d32675b67d9ca9eb0bca55743", size = 3496128, upload-time = "2025-10-16T22:17:16.558Z" },
     { url = "https://files.pythonhosted.org/packages/76/ee/3fdfeaa9776c0fd585d358c92b1dbca669720ffa476f0bbe64ed8f245bd7/uvloop-0.22.1-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:286322a90bea1f9422a470d5d2ad82d38080be0a29c4dd9b3e6384320a4d11e7", size = 3602565, upload-time = "2025-10-16T22:17:17.755Z" },
+]
+
+[[package]]
+name = "vcdvcd"
+version = "2.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/58/da/1f33971ea8db20650bce491015d46df50668a3f2564818ddb04fd1cbaad0/vcdvcd-2.6.0.tar.gz", hash = "sha256:96d8ce491729e8c8ad7034a5093601409d8a3f4a34023d0be3db28650ecbb128", size = 14037, upload-time = "2025-10-19T19:53:28.109Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/c4/8deea995921806aab923d543342031d8704231347a83d31259b666bb8a73/vcdvcd-2.6.0-py3-none-any.whl", hash = "sha256:d78a81bb7015f7c2564553624fd059c876fa4aca26ff1646e752a1fa06b18000", size = 12075, upload-time = "2025-10-19T19:53:24.703Z" },
 ]
 
 [[package]]
