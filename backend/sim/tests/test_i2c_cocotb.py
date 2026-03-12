@@ -45,6 +45,7 @@ import pathlib
 import sys
 
 import cocotb
+from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles
 
 # ---------------------------------------------------------------------------
@@ -75,9 +76,8 @@ async def _setup(dut) -> I2CDriver:
 
     Every test calls this first so it starts from a known, clean state.
     """
-    # Kick-start the clock if cocotb hasn't already started one.
-    # The wrapper generates its own clock in Verilog, so cocotb just needs
-    # to await rising edges — no cocotb.start_soon(Clock(...)) needed.
+    # Start the 100 MHz clock from cocotb (replaces Verilog #delay clock).
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
 
     driver = I2CDriver(dut, slave_addr_cfg=_SLAVE_ADDR)
     await driver.reset()

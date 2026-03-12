@@ -44,9 +44,9 @@ module i2c_system_wrapper;
         .write_valid   (write_valid)
     );
 
-    // Clock generation: 100MHz
-    initial clk = 0;
-    always #5 clk = ~clk;
+    // Clock is driven by cocotb (Clock generator) so this wrapper is
+    // compatible with both event-driven (Icarus) and cycle-based (Verilator)
+    // simulators.  No Verilog #delay clock generation here.
 
     // VCD dump
     initial begin

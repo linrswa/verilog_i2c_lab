@@ -94,6 +94,7 @@ import tempfile
 from typing import Any
 
 import cocotb
+from cocotb.clock import Clock
 from cocotb.utils import get_sim_time
 import cocotb_tools.config
 from cocotb_tools.runner import get_runner, Icarus
@@ -852,6 +853,11 @@ async def test_i2c_sequence(dut) -> None:
     # The simulator places the VCD in its working/build directory; we report
     # the filename so callers can locate it relative to the build dir.
     vcd_path: str | None = vcd_filename
+
+    # Start the 100 MHz clock from cocotb (period = 10 ns).
+    # This replaces the Verilog `always #5 clk = ~clk` so the wrapper is
+    # compatible with both Icarus and Verilator.
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
 
     driver = I2CDriver(dut)
     result = await run_sequence(driver, steps, vcd_path=vcd_path)
