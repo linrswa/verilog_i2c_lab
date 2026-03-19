@@ -1,0 +1,229 @@
+{
+  "schema_version": "1.0.0",
+  "meta": {
+    "generated_at": "2026-03-19T00:18:13+0800",
+    "generated_by": "gen-dispatch",
+    "git_commit": "7443fc8"
+  },
+  "dispatches": [
+    {
+      "dispatch_id": "DOC-architecture-20260319-01",
+      "module": "architecture",
+      "target_doc": "docs/00-architecture.md",
+      "objective": "Document the overall system architecture showing how frontend, backend API, simulation engine, and Verilog RTL layers connect",
+      "scope_in": [
+        "System component overview and relationships",
+        "Request lifecycle from UI to simulation to results",
+        "Subprocess IPC between FastAPI and cocotb runner",
+        "Wired-AND I2C bus model rationale",
+        "Build and simulation flow"
+      ],
+      "scope_out": [
+        "Detailed component internals (covered in module-specific docs)",
+        "Frontend component implementation details",
+        "Individual Verilog signal-level behavior"
+      ],
+      "required_sections": ["TL;DR", "Overview", "Data Flow", "Code Map", "Troubleshooting", "Extension Guide"],
+      "repo_hints": [
+        "backend/app/main.py",
+        "backend/app/services/runner.py",
+        "backend/sim/test_runner.py",
+        "backend/sim/rtl/i2c_top.v",
+        "backend/sim/tb/i2c_system_wrapper.v",
+        "frontend/src/App.tsx",
+        "frontend/src/lib/api.ts",
+        "pyproject.toml"
+      ],
+      "canonical_sources": [],
+      "consistency_requirements": [],
+      "verification_requirements": [
+        "All file paths must be verified with Glob before referencing",
+        "All code snippets must be copied from Read output (not written from memory)",
+        "All function signatures must be verified with Grep",
+        "Line numbers must be accurate (within 5 lines tolerance)"
+      ],
+      "acceptance_criteria": [
+        "Data flow diagram traces a request from frontend through API to simulation and back",
+        "All four layers (frontend, backend API, simulation, RTL) are represented with key file pointers",
+        "Subprocess IPC mechanism documented with JSON schema examples",
+        "All code citations verified against actual source files"
+      ]
+    },
+    {
+      "dispatch_id": "DOC-rtl-20260319-01",
+      "module": "rtl",
+      "target_doc": "docs/01-rtl.md",
+      "objective": "Document the Verilog RTL design including I2C master FSM, slave EEPROM, bus model, and testbench wrapper",
+      "scope_in": [
+        "I2C master controller FSM states and transitions",
+        "I2C slave responder with EEPROM register file",
+        "Wired-AND OE bus model in i2c_top.v",
+        "Testbench wrapper for cocotb integration",
+        "Module parameters (CLK_DIV, SLAVE_ADDR)"
+      ],
+      "scope_out": [
+        "Cocotb driver Python code",
+        "Backend API integration",
+        "Frontend visualization"
+      ],
+      "required_sections": ["TL;DR", "Overview", "Data Flow", "Code Map", "Troubleshooting", "Extension Guide"],
+      "repo_hints": [
+        "backend/sim/rtl/i2c_master.v",
+        "backend/sim/rtl/i2c_slave.v",
+        "backend/sim/rtl/i2c_top.v",
+        "backend/sim/tb/i2c_system_wrapper.v",
+        "backend/sim/tb/i2c_system_tb.v"
+      ],
+      "canonical_sources": [],
+      "consistency_requirements": [],
+      "verification_requirements": [
+        "All file paths must be verified with Glob before referencing",
+        "All code snippets must be copied from Read output (not written from memory)",
+        "All function signatures must be verified with Grep",
+        "Line numbers must be accurate (within 5 lines tolerance)"
+      ],
+      "acceptance_criteria": [
+        "Master FSM state diagram with all 8 states documented",
+        "Slave EEPROM address space and auto-increment behavior explained",
+        "OE bus model equation documented with rationale for avoiding tri-state",
+        "All Verilog module ports and parameters listed with descriptions"
+      ]
+    },
+    {
+      "dispatch_id": "DOC-simulation-20260319-01",
+      "module": "simulation",
+      "target_doc": "docs/02-simulation.md",
+      "objective": "Document the cocotb simulation layer including test runner, I2C driver, protocol interpreter, and test suites",
+      "scope_in": [
+        "test_runner.py JSON-driven test execution flow",
+        "I2CDriver cocotb transaction-level interface",
+        "ProtocolInterpreter sequence validation and Transaction mapping",
+        "cocotb test suites and test templates",
+        "Simulator selection (Verilator vs Icarus) and build caching"
+      ],
+      "scope_out": [
+        "Verilog RTL internals (covered in rtl doc)",
+        "FastAPI service layer (covered in backend-api doc)",
+        "Frontend UI components"
+      ],
+      "required_sections": ["TL;DR", "Overview", "Data Flow", "Code Map", "Troubleshooting", "Extension Guide"],
+      "repo_hints": [
+        "backend/sim/test_runner.py",
+        "backend/sim/i2c_driver.py",
+        "backend/sim/protocol_interpreter.py",
+        "backend/sim/tests/test_i2c_cocotb.py",
+        "backend/sim/tests/test_protocol.py",
+        "backend/sim/templates/"
+      ],
+      "canonical_sources": ["docs/01-rtl.md"],
+      "consistency_requirements": [
+        "Must be consistent with docs/01-rtl.md for DUT signal names and module parameters"
+      ],
+      "verification_requirements": [
+        "All file paths must be verified with Glob before referencing",
+        "All code snippets must be copied from Read output (not written from memory)",
+        "All function signatures must be verified with Grep",
+        "Line numbers must be accurate (within 5 lines tolerance)"
+      ],
+      "acceptance_criteria": [
+        "Test runner JSON input/output schema fully documented with examples",
+        "I2CDriver public API methods listed with signatures and behavior",
+        "Protocol interpreter Transaction dataclass fields documented",
+        "Both simulator backends compared with required flags"
+      ]
+    },
+    {
+      "dispatch_id": "DOC-backend_api-20260319-01",
+      "module": "backend-api",
+      "target_doc": "docs/03-backend-api.md",
+      "objective": "Document the FastAPI backend including API routes, simulation service, VCD parsing, waveform storage, and template system",
+      "scope_in": [
+        "REST API endpoints with request/response schemas",
+        "SimulationService subprocess management and build caching",
+        "VCD parsing and signal extraction",
+        "Waveform TTL storage and cleanup",
+        "Template loading and serving"
+      ],
+      "scope_out": [
+        "Cocotb simulation internals (covered in simulation doc)",
+        "Frontend components and rendering",
+        "Verilog RTL design"
+      ],
+      "required_sections": ["TL;DR", "Overview", "Data Flow", "Code Map", "Troubleshooting", "Extension Guide"],
+      "repo_hints": [
+        "backend/app/main.py",
+        "backend/app/routes/simulation.py",
+        "backend/app/routes/templates.py",
+        "backend/app/services/runner.py",
+        "backend/app/services/vcd_parser.py",
+        "backend/app/services/waveform.py",
+        "backend/app/services/templates.py"
+      ],
+      "canonical_sources": ["docs/02-simulation.md"],
+      "consistency_requirements": [
+        "Must be consistent with docs/02-simulation.md for test_runner.py JSON interface",
+        "Must be consistent with docs/00-architecture.md for API endpoint listing"
+      ],
+      "verification_requirements": [
+        "All file paths must be verified with Glob before referencing",
+        "All code snippets must be copied from Read output (not written from memory)",
+        "All function signatures must be verified with Grep",
+        "Line numbers must be accurate (within 5 lines tolerance)"
+      ],
+      "acceptance_criteria": [
+        "All REST API endpoints documented with HTTP method, path, request/response JSON",
+        "SimulationService subprocess lifecycle fully traced",
+        "VCD parsing pipeline documented with signal data format",
+        "Error codes and error response formats documented"
+      ]
+    },
+    {
+      "dispatch_id": "DOC-frontend-20260319-01",
+      "module": "frontend",
+      "target_doc": "docs/04-frontend.md",
+      "objective": "Document the React Flow frontend including canvas editor, node types, serialization, protocol validation, and waveform viewer",
+      "scope_in": [
+        "React Flow canvas with drag-and-drop node editing",
+        "Custom node types (Start, Stop, SendByte, RecvByte, RepeatedStart)",
+        "Flow serialization and topological ordering",
+        "Client-side protocol validation",
+        "Waveform and result panel rendering"
+      ],
+      "scope_out": [
+        "Backend API implementation details",
+        "Simulation engine internals",
+        "Verilog RTL design"
+      ],
+      "required_sections": ["TL;DR", "Overview", "Data Flow", "Code Map", "Troubleshooting", "Extension Guide"],
+      "repo_hints": [
+        "frontend/src/App.tsx",
+        "frontend/src/components/Toolbar.tsx",
+        "frontend/src/components/Sidebar.tsx",
+        "frontend/src/components/ResultPanel.tsx",
+        "frontend/src/components/WaveformPanel.tsx",
+        "frontend/src/components/nodes/",
+        "frontend/src/lib/api.ts",
+        "frontend/src/lib/serialize.ts",
+        "frontend/src/lib/protocol-validate.ts",
+        "frontend/src/lib/waveform.ts",
+        "frontend/src/lib/useFlowPersistence.ts"
+      ],
+      "canonical_sources": ["docs/03-backend-api.md"],
+      "consistency_requirements": [
+        "Must be consistent with docs/03-backend-api.md for API endpoint URLs and request formats"
+      ],
+      "verification_requirements": [
+        "All file paths must be verified with Glob before referencing",
+        "All code snippets must be copied from Read output (not written from memory)",
+        "All function signatures must be verified with Grep",
+        "Line numbers must be accurate (within 5 lines tolerance)"
+      ],
+      "acceptance_criteria": [
+        "All custom node types documented with their props and behavior",
+        "Serialization flow from React Flow graph to API payload explained",
+        "Protocol validation rules enumerated",
+        "Waveform panel signal rendering pipeline documented"
+      ]
+    }
+  ]
+}

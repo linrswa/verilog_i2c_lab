@@ -1,6 +1,6 @@
 import type { StepPayload } from './serialize'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
 // ─── Response types ────────────────────────────────────────────────────────
 
@@ -135,7 +135,7 @@ export async function getTemplate(id: string): Promise<TemplateDetail> {
  * The caller is responsible for initiating the download (e.g. via an <a> tag).
  */
 export function getWaveformUrl(id: string): string {
-  return `${API_BASE}/waveform/${encodeURIComponent(id)}`
+  return new URL(`${API_BASE}/waveform/${encodeURIComponent(id)}`, window.location.origin).toString()
 }
 
 // ─── Waveform signals types (mirrors backend WaveformSignals schema) ────────
@@ -164,7 +164,7 @@ export async function getWaveformSignals(
   waveformId: string,
   signals?: string[],
 ): Promise<WaveformSignalsResponse> {
-  const url = new URL(`${API_BASE}/waveform/${encodeURIComponent(waveformId)}/signals`)
+  const url = new URL(`${API_BASE}/waveform/${encodeURIComponent(waveformId)}/signals`, window.location.origin)
   if (signals && signals.length > 0) {
     url.searchParams.set('signals', signals.join(','))
   }

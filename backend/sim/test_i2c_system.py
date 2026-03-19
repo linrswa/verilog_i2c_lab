@@ -1,6 +1,7 @@
 """cocotb testbench for i2c_top (system-level) — 對應原本的 i2c_system_tb.v"""
 
 import cocotb
+from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, FallingEdge, ClockCycles, First
 
 
@@ -10,6 +11,9 @@ SLAVE_ADDR = 0x50
 
 async def reset(dut):
     """Reset and initialize."""
+    # Start the 100 MHz clock from cocotb (replaces Verilog #delay clock).
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+
     dut.rst_n.value = 0
     dut.start.value = 0
     dut.rw.value = 0

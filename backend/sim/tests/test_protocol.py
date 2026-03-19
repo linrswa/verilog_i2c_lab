@@ -41,6 +41,7 @@ import pathlib
 import sys
 
 import cocotb
+from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles
 
 # ---------------------------------------------------------------------------
@@ -83,6 +84,9 @@ _SLAVE_READ_BYTE  = (_SLAVE_ADDR << 1) | 1  # 0xA1
 
 async def _setup(dut) -> tuple[I2CDriver, ProtocolInterpreter]:
     """Reset the DUT and return a ready driver + interpreter pair."""
+    # Start the 100 MHz clock from cocotb (replaces Verilog #delay clock).
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+
     driver = I2CDriver(dut, slave_addr_cfg=_SLAVE_ADDR)
     await driver.reset()
     interpreter = ProtocolInterpreter()
@@ -433,12 +437,21 @@ def run_tests(
         pathlib.Path(build_dir) if build_dir else _SIM_DIR / "sim_build"
     )
 
-    runner = get_runner("icarus")
+    runner = get_runner("verilator")
     runner.build(
         verilog_sources=[str(s) for s in verilog_sources],
         hdl_toplevel="i2c_system_wrapper",
         build_dir=str(resolved_build_dir),
         always=True,
+        build_args=[
+            "--trace",
+            "--public-flat-rw",
+            "--timing",
+            "-Wno-WIDTHTRUNC",
+            "-Wno-WIDTHEXPAND",
+            "-Wno-UNOPTFLAT",
+            "-Wno-INITIALDLY",
+        ],
     )
     runner.test(
         hdl_toplevel="i2c_system_wrapper",

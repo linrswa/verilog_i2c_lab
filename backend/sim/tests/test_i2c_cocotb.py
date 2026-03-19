@@ -45,6 +45,7 @@ import pathlib
 import sys
 
 import cocotb
+from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles
 
 # ---------------------------------------------------------------------------
@@ -75,9 +76,8 @@ async def _setup(dut) -> I2CDriver:
 
     Every test calls this first so it starts from a known, clean state.
     """
-    # Kick-start the clock if cocotb hasn't already started one.
-    # The wrapper generates its own clock in Verilog, so cocotb just needs
-    # to await rising edges — no cocotb.start_soon(Clock(...)) needed.
+    # Start the 100 MHz clock from cocotb (replaces Verilog #delay clock).
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
 
     driver = I2CDriver(dut, slave_addr_cfg=_SLAVE_ADDR)
     await driver.reset()
@@ -360,12 +360,21 @@ def run_tests(
 
     resolved_build_dir = pathlib.Path(build_dir) if build_dir else _SIM_DIR / "sim_build"
 
-    runner = get_runner("icarus")
+    runner = get_runner("verilator")
     runner.build(
         verilog_sources=[str(s) for s in verilog_sources],
         hdl_toplevel="i2c_system_wrapper",
         build_dir=str(resolved_build_dir),
         always=True,
+        build_args=[
+            "--trace",
+            "--public-flat-rw",
+            "--timing",
+            "-Wno-WIDTHTRUNC",
+            "-Wno-WIDTHEXPAND",
+            "-Wno-UNOPTFLAT",
+            "-Wno-INITIALDLY",
+        ],
     )
     runner.test(
         hdl_toplevel="i2c_system_wrapper",

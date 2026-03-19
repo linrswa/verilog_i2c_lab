@@ -17,7 +17,7 @@ Interactive I2C protocol simulation platform — build I2C sequences on a visual
 A full-stack platform for learning and verifying the I2C protocol, combining:
 
 - **Visual protocol editor** — drag-and-drop nodes on a React Flow canvas to compose I2C communication sequences
-- **Real-time RTL simulation** — cocotb drives Icarus Verilog for actual hardware-level simulation
+- **Real-time RTL simulation** — cocotb drives Verilator (or Icarus Verilog) for actual hardware-level simulation
 - **Waveform viewer** — built-in SVG signal renderer with signal selection, pan/zoom, and Surfer WASM integration for full VCD analysis
 - **Result inspection** — per-step execution status, slave EEPROM 256-byte hex grid, and register pointer tracking
 
@@ -65,7 +65,7 @@ Ideal for I2C protocol learning, RTL design verification, or as a reference impl
 |-------|-------------|
 | Frontend | React 19, TypeScript, Vite, React Flow (@xyflow/react), Tailwind CSS |
 | Backend | Python 3.9+, FastAPI, uvicorn |
-| Simulation | cocotb 2.0, Icarus Verilog |
+| Simulation | cocotb 2.0, Verilator 5.046+ (Icarus Verilog fallback) |
 | Testing | pytest, pytest-asyncio, vitest |
 | Package Mgmt | uv (Python), bun / npm (Frontend) |
 
@@ -76,7 +76,8 @@ Ideal for I2C protocol learning, RTL design verification, or as a reference impl
 - Python 3.9+
 - [uv](https://docs.astral.sh/uv/) — Python package manager
 - Node.js 18+ with [bun](https://bun.sh/) or npm
-- [Icarus Verilog](https://steveicarus.github.io/iverilog/) — `iverilog` must be on PATH
+- [Verilator](https://www.veripool.org/verilator/) 5.024+ — `verilator` must be on PATH (5.046+ recommended)
+- [Icarus Verilog](https://steveicarus.github.io/iverilog/) — optional fallback (`iverilog` on PATH)
 
 ### Installation
 
@@ -233,7 +234,7 @@ The response includes `register_dump` (EEPROM contents), `reg_pointer` (current 
 2. Backend validates the sequence, writes to a temp file, spawns a cocotb subprocess
 3. `protocol_interpreter.py` converts steps into I2C transactions
 4. `i2c_driver.py` drives the Verilog testbench via cocotb
-5. Icarus Verilog runs the RTL simulation and generates a VCD waveform
+5. Verilator (default) or Icarus Verilog runs the RTL simulation and generates a VCD waveform
 6. Results (with per-step timing) are returned as JSON
 
 > [!TIP]
@@ -253,7 +254,9 @@ The response includes `register_dump` (EEPROM contents), `reg_pointer` (current 
 
 ### I2C Top (`i2c_top.v`)
 
-- Top-level module connecting Master + Slave with open-drain bus emulation (pull-up resistor logic)
+- Top-level module connecting Master + Slave using an explicit OE (output-enable) + wired-AND bus model
+- `sda = ~(master_sda_oe | slave_sda_oe)` — any device asserting OE pulls the bus low; bus is high when nobody drives
+- This replaces the original tri-state (`inout`/`pullup`/`1'bz`) design, enabling Verilator compatibility
 
 ## Testing
 

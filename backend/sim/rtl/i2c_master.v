@@ -19,9 +19,12 @@ module i2c_master (
     output reg data_valid,   // data_out 有效（one-cycle pulse，每讀完一個 byte 拉高一次）
     output reg [3:0] byte_count,  // 目前已傳輸的 byte 數
 
-    // I2C bus
-    output wire scl,  // I2C clock（open-drain）
-    inout  wire sda   // I2C data（open-drain, bidirectional）
+    // I2C bus — explicit OE interface (no tri-state)
+    // sda_oe/scl_oe = 1 → drive bus LOW (open-drain pull-down)
+    // sda_oe/scl_oe = 0 → release bus (pulled HIGH by top-level wired-AND)
+    input  wire sda_i,      // SDA bus value (for reading ACK, data)
+    output reg  sda_oe,     // SDA output-enable (active-low drive)
+    output reg  scl_oe      // SCL output-enable (active-low drive)
 );
 
   // parameter / 內部 reg、wire 宣告
@@ -42,8 +45,6 @@ module i2c_master (
                      STOP           = 3'b111;
 
   reg [$clog2(CLK_DIV)-1:0] clk_div_cnt;  // clock divider counter
-  reg sda_oe;
-  reg scl_oe;
 
   reg [2:0] state;
   reg [7:0] addr_buf;
@@ -61,10 +62,6 @@ module i2c_master (
       clk_div_cnt <= clk_div_cnt + 1;
     end
   end
-
-  // open-drain
-  assign sda = sda_oe ? 1'b0 : 1'bz;  // sda_oe = 1 時拉低，否則高阻
-  assign scl = scl_oe ? 1'b0 : 1'bz;  //
 
   // scl
   always @(posedge clk or negedge rst_n) begin
@@ -160,10 +157,10 @@ module i2c_master (
               if (bit_cnt == 7) begin
                 ack_flag <= READ;
                 data_valid <= 1;
-                data_out <= {data_buf[6:0], sda};  // 更新 data_out
+                data_out <= {data_buf[6:0], sda_i};  // 更新 data_out
                 state <= ACK;  // 讀取完一個 byte 後進入 ACK phase
               end
-              data_buf <= {data_buf[6:0], sda};  // MSB first
+              data_buf <= {data_buf[6:0], sda_i};  // MSB first
               bit_cnt  <= bit_cnt + 1;
             end
             default: begin
@@ -190,7 +187,7 @@ module i2c_master (
             HIGH_MID: begin
               case (ack_flag)
                 ADDR: begin  // address phase 不更新 data_out
-                  if (sda) begin
+                  if (sda_i) begin
                     ack_error <= 1;  // NACK
                     state <= STOP;  // 發生 NACK 就結束 transaction
                   end else begin
@@ -203,7 +200,7 @@ module i2c_master (
                   end
                 end
                 WRITE: begin
-                  if (sda) begin
+                  if (sda_i) begin
                     ack_error <= 1;  // NACK
                   end
                   byte_count <= byte_count + 1;

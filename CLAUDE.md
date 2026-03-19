@@ -11,7 +11,7 @@
   cd backend && python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
   ```
 - **Frontend**: Vite + React in `frontend/`, runs on `localhost:5173`
-- **Simulation**: cocotb 2.0 + Icarus Verilog. cocotb 2.0 uses `cocotb_tools.runner` (not `cocotb.runner`)
+- **Simulation**: cocotb 2.0 + Verilator (default) or Icarus Verilog (fallback). cocotb 2.0 uses `cocotb_tools.runner` (not `cocotb.runner`)
 - **IMPORTANT**: The backend subprocess uses `sys.executable` to spawn simulation processes. You must start the backend using the `.venv` Python so that the subprocess also uses the correct environment with cocotb installed.
 
 ## Project Structure
@@ -27,4 +27,8 @@
 - `backend/sim/` files use bare imports (e.g., `from protocol_interpreter import ...`) because the subprocess runs with `cwd=sim/`
 - `backend/app/` files use `sim.` prefix imports (e.g., `from sim.protocol_interpreter import ...`)
 - Protocol sequences auto-prepend a `reset` step if not provided (DUT hangs without reset)
-- Simulation (vvp) should complete within a few seconds. If a test hangs over 15 seconds, kill it — it likely indicates a bug (e.g., missing reset, waiting on a signal that never arrives)
+- Simulation should complete within a few seconds. If a test hangs over 15 seconds, kill it — it likely indicates a bug (e.g., missing reset, waiting on a signal that never arrives)
+- Verilator requires flags `--trace`, `--public-flat-rw`, `--timing` at build time (set in `run_simulation()`). Minimum version: 5.024 (cocotb 2.0 compatibility), recommended: 5.046+
+- `run_simulation()` accepts a `simulator` parameter: `"verilator"` (default) or `"icarus"`. CLI: `python test_runner.py --simulator verilator|icarus ...`
+- RTL uses OE (output-enable) + wired-AND bus model instead of tri-state (`inout`/`pullup`/`1'bz`) for Verilator compatibility. `sda = ~(master_sda_oe | slave_sda_oe)` in `i2c_top.v`
+- Clock generation uses cocotb `Clock` generator (`cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())`) rather than Verilog `#delay` — compatible with both Icarus and Verilator

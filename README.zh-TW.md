@@ -17,7 +17,7 @@
 本專案是一個全端的 I2C 協議學習與驗證平台，結合：
 
 - **視覺化協議編輯器** — 在 React Flow 畫布上拖拉節點，組成 I2C 通訊流程
-- **即時 RTL 模擬** — 透過 cocotb 驅動 Icarus Verilog，執行真實的硬體模擬
+- **即時 RTL 模擬** — 透過 cocotb 驅動 Verilator（或 Icarus Verilog），執行真實的硬體模擬
 - **波形檢視** — 內建 SVG 波形渲染器，支援訊號選擇、平移縮放，並可以 Surfer 開啟完整 VCD
 - **結果檢視** — 每一步驟的執行狀態、Slave EEPROM 256-byte hex grid、register pointer 追蹤
 
@@ -65,7 +65,7 @@
 |------|------|
 | 前端 | React 19、TypeScript、Vite、React Flow (@xyflow/react)、Tailwind CSS |
 | 後端 | Python 3.9+、FastAPI、uvicorn |
-| 模擬 | cocotb 2.0、Icarus Verilog |
+| 模擬 | cocotb 2.0、Verilator 5.046+（Icarus Verilog 備用） |
 | 測試 | pytest、pytest-asyncio、vitest |
 | 套件管理 | uv (Python)、bun / npm (Frontend) |
 
@@ -76,7 +76,8 @@
 - Python 3.9+
 - [uv](https://docs.astral.sh/uv/) — Python 套件管理
 - Node.js 18+ 與 [bun](https://bun.sh/) 或 npm
-- [Icarus Verilog](https://steveicarus.github.io/iverilog/) — `iverilog` 需在 PATH 中
+- [Verilator](https://www.veripool.org/verilator/) 5.024+ — `verilator` 需在 PATH 中（建議 5.046+）
+- [Icarus Verilog](https://steveicarus.github.io/iverilog/) — 選用備用模擬器（`iverilog` 需在 PATH 中）
 
 ### 安裝與啟動
 
@@ -233,7 +234,7 @@ curl -X POST http://localhost:8000/api/run \
 2. 後端驗證序列並寫入暫存檔，啟動 cocotb 子程序
 3. `protocol_interpreter.py` 將步驟轉換為 I2C 交易
 4. `i2c_driver.py` 透過 cocotb 驅動 Verilog testbench
-5. Icarus Verilog 執行 RTL 模擬，產生 VCD 波形
+5. Verilator（預設）或 Icarus Verilog 執行 RTL 模擬，產生 VCD 波形
 6. 結果（含 per-step timing）以 JSON 回傳前端
 
 > [!TIP]
@@ -253,7 +254,9 @@ curl -X POST http://localhost:8000/api/run \
 
 ### I2C Top (`i2c_top.v`)
 
-- 頂層模組，連接 Master + Slave，模擬 open-drain 匯流排（含上拉電阻邏輯）
+- 頂層模組，連接 Master + Slave，採用顯式 OE（output-enable）+ wired-AND 匯流排模型
+- `sda = ~(master_sda_oe | slave_sda_oe)` — 任一裝置拉高 OE 即將匯流排拉低；無人驅動時匯流排為高電位
+- 此設計取代原本的三態（`inout`/`pullup`/`1'bz`）實作，以支援 Verilator 模擬
 
 ## 測試
 
