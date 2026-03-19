@@ -97,7 +97,7 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.utils import get_sim_time
 import cocotb_tools.config
-from cocotb_tools.runner import get_runner, Icarus
+from cocotb_tools.runner import get_runner, Icarus, Verilator
 
 from i2c_driver import I2CDriver
 from protocol_interpreter import ProtocolInterpreter
@@ -892,8 +892,9 @@ def run_simulation(
     result_json_path: str | None = None,
     build_dir: str | None = None,
     skip_build: bool = False,
+    simulator: str = "verilator",
 ) -> None:
-    """Compile the RTL and run the cocotb simulation using the Icarus runner.
+    """Compile the RTL and run the cocotb simulation.
 
     This function replaces the need for a Makefile.  It uses the stable
     cocotb Python runner API introduced in cocotb 2.0.
@@ -913,32 +914,48 @@ def run_simulation(
         Passed via the ``TEST_RESULT_JSON`` env var.  When *None* the result
         is not persisted.
     build_dir:
-        Directory for Icarus build artefacts.  Defaults to a ``sim_build``
+        Directory for build artefacts.  Defaults to a ``sim_build``
         sub-directory next to this file.
     skip_build:
         When ``True``, skip the RTL compilation step and reuse the existing
         ``sim_build/`` binary.  Set by the backend when the build cache is
         warm and no RTL sources have changed since the last compile.
         Defaults to ``False`` (always compile).
+    simulator:
+        Simulator backend: ``"verilator"`` (default) or ``"icarus"``.
     """
-    # Use our custom _VcdIcarus runner so $dumpfile/$dumpvars produce
-    # plain-text VCD (readable by vcdvcd) instead of FST.
-    runner = _VcdIcarus()
+    if simulator == "icarus":
+        # Use our custom _VcdIcarus runner so $dumpfile/$dumpvars produce
+        # plain-text VCD (readable by vcdvcd) instead of FST.
+        runner = _VcdIcarus()
+    else:
+        runner = Verilator()
 
     # Resolve build directory.
     resolved_build_dir = (
         pathlib.Path(build_dir) if build_dir else _SIM_DIR / "sim_build"
     )
 
-    # Compile the RTL unless the caller indicates the cache is still valid.
-    # When skip_build is True we pass always=False so cocotb skips the
-    # compilation step and reuses the existing sim_build/ binary.
-    runner.build(
-        verilog_sources=[str(s) for s in _VERILOG_SOURCES],
-        hdl_toplevel=_TOPLEVEL,
-        build_dir=str(resolved_build_dir),
-        always=not skip_build,
-    )
+    # Build arguments differ per simulator.
+    build_kwargs: dict = {
+        "verilog_sources": [str(s) for s in _VERILOG_SOURCES],
+        "hdl_toplevel": _TOPLEVEL,
+        "build_dir": str(resolved_build_dir),
+        "always": not skip_build,
+    }
+
+    if simulator == "verilator":
+        build_kwargs["build_args"] = [
+            "--trace",              # enable VCD tracing
+            "--public-flat-rw",     # expose all signals for cocotb hierarchical access
+            "--timing",             # enable timing support (needed for cocotb)
+            "-Wno-WIDTHTRUNC",
+            "-Wno-WIDTHEXPAND",
+            "-Wno-UNOPTFLAT",
+            "-Wno-INITIALDLY",
+        ]
+
+    runner.build(**build_kwargs)
 
     # Build the environment for the test coroutine.
     sim_env: dict[str, str] = {}
@@ -951,8 +968,6 @@ def run_simulation(
     vcd_filename = "i2c_system_cocotb.vcd"
     sim_env["VCD_FILENAME"] = vcd_filename
 
-    # Run the simulation.  The _VcdIcarus runner omits -fst/-none so the
-    # Verilog $dumpfile/$dumpvars produce plain-text VCD automatically.
     runner.test(
         hdl_toplevel=_TOPLEVEL,
         test_module=_PY_MODULE,
@@ -1010,6 +1025,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "Skip the RTL compilation step and reuse the existing sim_build/ "
             "binary.  Only safe when no RTL source files have changed since "
             "the last compile."
+        ),
+    )
+    parser.add_argument(
+        "--simulator",
+        choices=["verilator", "icarus"],
+        default="verilator",
+        help=(
+            "Simulator backend to use.  Defaults to 'verilator'."
         ),
     )
     return parser
@@ -1082,6 +1105,7 @@ def main(argv: list[str] | None = None) -> int:
             steps_json=steps_json_str,
             result_json_path=result_tmp_path,
             skip_build=args.skip_build,
+            simulator=args.simulator,
         )
     except SystemExit as exc:
         # cocotb / the runner may call sys.exit() on failure.

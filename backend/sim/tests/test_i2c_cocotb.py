@@ -360,12 +360,21 @@ def run_tests(
 
     resolved_build_dir = pathlib.Path(build_dir) if build_dir else _SIM_DIR / "sim_build"
 
-    runner = get_runner("icarus")
+    runner = get_runner("verilator")
     runner.build(
         verilog_sources=[str(s) for s in verilog_sources],
         hdl_toplevel="i2c_system_wrapper",
         build_dir=str(resolved_build_dir),
         always=True,
+        build_args=[
+            "--trace",
+            "--public-flat-rw",
+            "--timing",
+            "-Wno-WIDTHTRUNC",
+            "-Wno-WIDTHEXPAND",
+            "-Wno-UNOPTFLAT",
+            "-Wno-INITIALDLY",
+        ],
     )
     runner.test(
         hdl_toplevel="i2c_system_wrapper",

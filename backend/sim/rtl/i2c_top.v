@@ -34,13 +34,11 @@ module i2c_top #(
     output wire       write_valid
 );
 
-    // I2C bus 線路
-    wire sda;
-    wire scl;
-
-    // Pullup 電阻（模擬 open-drain bus）
-    pullup (sda);
-    pullup (scl);
+    // I2C bus — wired-AND open-drain resolution (no tri-state)
+    // OE = 1 means "pull bus LOW"; when nobody pulls, bus is HIGH.
+    wire master_sda_oe, slave_sda_oe, master_scl_oe;
+    wire sda = ~(master_sda_oe | slave_sda_oe);  // wired-AND
+    wire scl = ~master_scl_oe;                     // only master drives SCL
 
     // Master instance
     i2c_master #(
@@ -60,8 +58,9 @@ module i2c_top #(
         .data_out (data_out),
         .data_valid(data_valid),
         .byte_count(byte_count),
-        .scl      (scl),
-        .sda      (sda)
+        .sda_i    (sda),
+        .sda_oe   (master_sda_oe),
+        .scl_oe   (master_scl_oe)
     );
 
     // Slave instance
@@ -74,7 +73,8 @@ module i2c_top #(
         .reg_data_out(reg_data_out),
         .write_valid(write_valid),
         .scl      (scl),
-        .sda      (sda)
+        .sda_i    (sda),
+        .sda_oe   (slave_sda_oe)
     );
 
 endmodule

@@ -48,10 +48,12 @@ module i2c_system_wrapper;
     // compatible with both event-driven (Icarus) and cycle-based (Verilator)
     // simulators.  No Verilog #delay clock generation here.
 
-    // VCD dump
+    // VCD dump — only for Icarus; Verilator uses --trace at build time.
+`ifndef VERILATOR
     initial begin
         $dumpfile("i2c_system_cocotb.vcd");
         $dumpvars(0, i2c_system_wrapper);
     end
+`endif
 
 endmodule

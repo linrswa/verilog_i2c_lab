@@ -13,9 +13,12 @@ module i2c_slave (
     output reg [7:0] reg_data_out,  // 最近一次寫入的 data（debug 用）
     output reg       write_valid,   // 有新資料被寫入 register（one-cycle pulse）
 
-    // I2C bus
-    input wire scl,  // I2C clock（由 Master 驅動）
-    inout wire sda   // I2C data（open-drain, bidirectional）
+    // I2C bus — explicit OE interface (no tri-state)
+    // sda_oe = 1 → drive bus LOW (open-drain pull-down)
+    // sda_oe = 0 → release bus (pulled HIGH by top-level wired-AND)
+    input  wire scl,        // I2C clock（由 Master 驅動）
+    input  wire sda_i,      // SDA bus value (for reading)
+    output reg  sda_oe      // SDA output-enable (active-low drive)
 );
     reg [7:0] register_file[0:255];  // 256 個 8-bit register
     // 初始化 register file，避免讀取未寫入的 register 時產生 X
@@ -26,24 +29,20 @@ module i2c_slave (
     end
     reg [7:0] slave_addr_recive;
     reg [7:0] shift_reg;           // 接收中的 byte 暫存器
-    reg sda_oe;
     reg [3:0] bit_cnt;
     reg first_byte_received;
     reg sda_prev, scl_prev;  // 用來檢測 SDA 和 SCL 的邊緣
 
     //// Start 和 Stop 條件的檢測////////
-    wire start_condition = scl & sda_prev & ~sda;
+    wire start_condition = scl & sda_prev & ~sda_i;
     // Guard stop_condition: during READ-ACK the master releases SDA (0→1) while
     // SCL is still high, which looks like a STOP but is not.  Suppress
     // detection during the READ-ACK window tracked by in_read_ack_window.
-    wire stop_condition = scl & ~sda_prev & sda & ~in_read_ack_window;
+    wire stop_condition = scl & ~sda_prev & sda_i & ~in_read_ack_window;
 
     //// scl ///
     wire scl_rising = (scl_prev == 0) && (scl == 1);
     wire scl_falling = (scl_prev == 1) && (scl == 0);
-
-    //// open-drain 控制 SDA 線 ////
-    assign sda = sda_oe ? 1'b0 : 1'bz;
 
     reg [2:0] state;
     reg [2:0] ack_state;
@@ -73,7 +72,7 @@ module i2c_slave (
             state <= IDLE;
             in_read_ack_window <= 0;
         end else begin
-            sda_prev <= sda;
+            sda_prev <= sda_i;
             scl_prev <= scl;
                     // Suppress false STOP detection while the slave is transmitting
             // read data (READ state) or during the ACK phase following a read
@@ -109,7 +108,7 @@ module i2c_slave (
                     if (scl_rising) begin  // 在 SCL 上升沿讀取 SDA
                         bit_cnt <= bit_cnt + 1;
                         slave_addr_recive <= {
-                            slave_addr_recive[6:0], sda
+                            slave_addr_recive[6:0], sda_i
                         };  // Shift in address bits
                     end else if (scl_falling) begin
                         if (bit_cnt == 8) begin
@@ -142,7 +141,7 @@ module i2c_slave (
                         end
                         READ: begin
                             if (scl_rising) begin
-                                if (sda) begin
+                                if (sda_i) begin
                                     state <= IDLE;
                                 end else begin
                                     reg_addr <= reg_addr + 1;
@@ -182,7 +181,7 @@ module i2c_slave (
                 WRITE: begin
                     if (scl_rising) begin
                         bit_cnt <= bit_cnt + 1;
-                        shift_reg <= {shift_reg[6:0], sda};
+                        shift_reg <= {shift_reg[6:0], sda_i};
                     end else if (scl_falling) begin
                         if (bit_cnt == 8) begin
                             if (first_byte_received) begin
