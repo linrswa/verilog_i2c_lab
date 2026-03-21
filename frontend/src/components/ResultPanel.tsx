@@ -55,7 +55,7 @@ function EepromDump({ dump, regPointer }: { dump: Record<string, number>; regPoi
             {Array.from({ length: COLS }, (_, row) => (
               <tr key={row}>
                 <td className="px-1.5 py-0.5 text-gray-400 border border-gray-200 bg-gray-50 font-semibold">
-                  {(row * COLS).toString(16).toUpperCase().padStart(2, '0')}
+                  {row.toString(16).toUpperCase()}
                 </td>
                 {Array.from({ length: COLS }, (_, col) => {
                   const addr = row * COLS + col
