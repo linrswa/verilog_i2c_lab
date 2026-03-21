@@ -945,8 +945,11 @@ def run_simulation(
     }
 
     if simulator == "verilator":
+        # Let waves=True handle --trace and VM_TRACE=1 automatically.
+        # Without waves=True, Verilator never produces a VCD file even
+        # when --trace is passed as a build_arg.
+        build_kwargs["waves"] = True
         build_kwargs["build_args"] = [
-            "--trace",              # enable VCD tracing
             "--public-flat-rw",     # expose all signals for cocotb hierarchical access
             "--timing",             # enable timing support (needed for cocotb)
             "-Wno-WIDTHTRUNC",
@@ -968,13 +971,21 @@ def run_simulation(
     vcd_filename = "i2c_system_cocotb.vcd"
     sim_env["VCD_FILENAME"] = vcd_filename
 
-    runner.test(
-        hdl_toplevel=_TOPLEVEL,
-        test_module=_PY_MODULE,
-        build_dir=str(resolved_build_dir),
-        test_dir=str(_SIM_DIR),
-        extra_env=sim_env,
-    )
+    # For Verilator, waves=True passes --trace at runtime so the binary
+    # actually writes a VCD file.  --trace-file sets the output filename
+    # so it matches what the backend expects (instead of the default dump.vcd).
+    test_kwargs: dict = {
+        "hdl_toplevel": _TOPLEVEL,
+        "test_module": _PY_MODULE,
+        "build_dir": str(resolved_build_dir),
+        "test_dir": str(_SIM_DIR),
+        "extra_env": sim_env,
+    }
+    if simulator == "verilator":
+        test_kwargs["waves"] = True
+        test_kwargs["test_args"] = ["--trace-file", vcd_filename]
+
+    runner.test(**test_kwargs)
 
 
 # ---------------------------------------------------------------------------
