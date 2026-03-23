@@ -1,3 +1,5 @@
+> **中文版**: [04-frontend.md](zh-TW/04-frontend.md)
+
 # Frontend: React Flow Canvas Editor for I2C Protocol Simulation
 
 ## TL;DR

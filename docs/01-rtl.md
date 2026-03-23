@@ -1,3 +1,5 @@
+> **中文版**: [01-rtl.md](zh-TW/01-rtl.md)
+
 # RTL: I2C Master/Slave System — Verilog Design Reference
 
 ## TL;DR

@@ -1,3 +1,5 @@
+> **中文版**: [00-architecture.md](zh-TW/00-architecture.md)
+
 # System Architecture: Full-Stack I2C Simulation Platform
 
 ## TL;DR
@@ -26,8 +28,8 @@ This platform lets users visually compose I2C protocol sequences on a React Flow
 ### Component topology
 
 ```
-┌─────────────────────┐       HTTP/JSON        ┌──────────────────────────┐
-│  Frontend           │ ─────────────────────> │  FastAPI (port 8000)     │
+┌─────────────────────┐       HTTP/JSON         ┌──────────────────────────┐
+│  Frontend           │ ──────────────────────> │  FastAPI (port 8000)     │
 │  localhost:5173     │ <─────────────────────  │  backend/app/main.py     │
 │  Vite + React Flow  │                         │  /api/run                │
 └─────────────────────┘                         │  /api/waveform/{id}      │

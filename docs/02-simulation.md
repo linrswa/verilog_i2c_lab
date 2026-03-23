@@ -1,3 +1,5 @@
+> **中文版**: [02-simulation.md](zh-TW/02-simulation.md)
+
 # Simulation Layer: cocotb I2C Test Runner and Driver Reference
 
 ## TL;DR
