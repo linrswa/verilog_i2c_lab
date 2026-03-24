@@ -30,9 +30,9 @@ module i2c_master (
   // parameter / 內部 reg、wire 宣告
   parameter integer CLK_DIV = 100;
 
-  localparam integer N_EDGE = 0,
+  localparam integer FALLING = 0,
                      LOW_MID = CLK_DIV / 4,
-                     P_EDGE = CLK_DIV / 2,
+                     RISING = CLK_DIV / 2,
                      HIGH_MID = 3 * CLK_DIV / 4;
 
   localparam integer IDLE           = 3'b000,
@@ -72,7 +72,7 @@ module i2c_master (
         IDLE, START: scl_oe <= 0;  // IDLE 和 START 狀態保持 SCL 高阻
         // STOP 使用 default 正常 clock，讓 slave 有 scl_falling 釋放 ACK
         default: begin
-          if (clk_div_cnt < P_EDGE) begin
+          if (clk_div_cnt < RISING) begin
             scl_oe <= 1;  // 前半週期拉低 SCL
           end else begin
             scl_oe <= 0;  // 後半週期釋放 SCL
@@ -153,6 +153,7 @@ module i2c_master (
         end
         READ: begin
           case (clk_div_cnt)
+            LOW_MID: sda_oe <= 0;  // Release SDA (SCL is LOW here) so slave can drive data
             HIGH_MID: begin
               if (bit_cnt == 7) begin
                 ack_flag <= READ;
@@ -218,9 +219,12 @@ module i2c_master (
                 READ: begin
                   data_valid <= 0;
                   byte_count <= byte_count + 1;
-                  sda_oe <= 0;
+                  // Do NOT change sda_oe here — SCL is HIGH at HIGH_MID.
+                  // Releasing SDA while SCL is HIGH creates a false STOP
+                  // condition that the slave interprets as end-of-transaction.
+                  // SDA will be released at LOW_MID of the next READ state
+                  // (when SCL is LOW), which is I2C-safe.
                   if (byte_count == num_bytes - 1) begin
-                    sda_oe <= 1;  // 最後一個 byte 讀取完後送 NACK
                     if (repeated_start) begin
                       state <= REPEATED_START;
                     end else begin
