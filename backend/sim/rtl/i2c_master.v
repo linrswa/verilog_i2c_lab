@@ -219,11 +219,6 @@ module i2c_master (
                 READ: begin
                   data_valid <= 0;
                   byte_count <= byte_count + 1;
-                  // Do NOT change sda_oe here — SCL is HIGH at HIGH_MID.
-                  // Releasing SDA while SCL is HIGH creates a false STOP
-                  // condition that the slave interprets as end-of-transaction.
-                  // SDA will be released at LOW_MID of the next READ state
-                  // (when SCL is LOW), which is I2C-safe.
                   if (byte_count == num_bytes - 1) begin
                     if (repeated_start) begin
                       state <= REPEATED_START;
