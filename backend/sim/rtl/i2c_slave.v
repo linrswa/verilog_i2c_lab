@@ -35,10 +35,7 @@ module i2c_slave (
 
     //// Start 和 Stop 條件的檢測////////
     wire start_condition = scl & sda_prev & ~sda_i;
-    // Guard stop_condition: during READ-ACK the master releases SDA (0→1) while
-    // SCL is still high, which looks like a STOP but is not.  Suppress
-    // detection during the READ-ACK window tracked by in_read_ack_window.
-    wire stop_condition = scl & ~sda_prev & sda_i & ~in_read_ack_window;
+    wire stop_condition = scl & ~sda_prev & sda_i;
 
     //// scl ///
     wire scl_rising = (scl_prev == 0) && (scl == 1);
@@ -49,11 +46,7 @@ module i2c_slave (
     // idle addr ack read write
     localparam IDLE = 3'b000, ADDR = 3'b001, ACK = 3'b010, READ = 3'b011, WRITE = 3'b100;
 
-    // One-cycle flag set while slave is in ACK state with ack_state == READ
-    // (master byte ACK) or on the immediately following cycle (state == READ).
-    // Used to suppress false stop_condition detection when the master releases
-    // SDA during READ-mode ACK while SCL is still high.
-    reg in_read_ack_window;
+
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -70,25 +63,10 @@ module i2c_slave (
             sda_prev <= 1;
             scl_prev <= 1;
             state <= IDLE;
-            in_read_ack_window <= 0;
+
         end else begin
             sda_prev <= sda_i;
             scl_prev <= scl;
-                    // Suppress false STOP detection while the slave is transmitting
-            // read data (READ state) or during the ACK phase following a read
-            // byte (ACK state with ack_state==READ).
-            //
-            // In READ mode the master legitimately releases SDA (driving it
-            // from 0 to 1) while SCL is high at the start of each inter-byte
-            // ACK window.  The slave must not interpret this as a STOP; it
-            // detects end-of-read via the NACK signal (SDA high at scl_rising
-            // in ACK state) rather than via the stop_condition wire.
-            //
-            // A genuine STOP issued by the master after a NACK will be
-            // detected once the slave transitions to IDLE state, at which
-            // point in_read_ack_window is 0 and stop_condition is unmasked.
-            in_read_ack_window <= (state == READ) ||
-                                  (state == ACK && ack_state == READ);
             if (stop_condition) begin
                 busy   <= 0;
                 sda_oe <= 0;
