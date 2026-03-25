@@ -25,39 +25,15 @@ Ideal for I2C protocol learning, RTL design verification, or as a reference impl
 
 ### Architecture
 
-```
-┌──────────────────────────────────────────┐
-│            Frontend (React)              │
-│  ┌───────┬──────────────┬──────────────┐ │
-│  │Sidebar│  React Flow  │ Result Panel │ │
-│  │ Node  │  Canvas      │ Step Results │ │
-│  │Palette│  (vertical)  │ + EEPROM     │ │
-│  ├───────┴──────────────┴──────────────┤ │
-│  │        WaveformPanel (SVG)          │ │
-│  │   SDA/SCL traces + step overlays    │ │
-│  └─────────────────────────────────────┘ │
-└──────────────────┬───────────────────────┘
-                   │ HTTP API (JSON)
-                   ▼
-┌──────────────────────────────────────────┐
-│          Backend (FastAPI)               │
-│   Validate → Queue → Simulate → Parse    │
-└──────────────────┬───────────────────────┘
-                   │ subprocess
-                   ▼
-┌──────────────────────────────────────────┐
-│        Simulation (cocotb 2.0)           │
-│  Protocol Interpreter → I2C Driver       │
-│  Per-step timing capture → waveform sync │
-└──────────────────┬───────────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────┐
-│           RTL (Verilog)                  │
-│   I2C Master + I2C Slave                 │
-│   Open-drain Bus + 256B EEPROM           │
-└──────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="resource/png/architecture-horizontal.png" alt="System Architecture" width="800">
+</p>
+
+### Frontend UI
+
+<p align="center">
+  <img src="resource/png/frontend_ui.png" alt="Frontend UI" width="800">
+</p>
 
 ### Tech Stack
 
