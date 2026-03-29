@@ -202,8 +202,8 @@
       "frameId": null,
       "roundness": null,
       "seed": 152699567,
-      "version": 144,
-      "versionNonce": 324839574,
+      "version": 145,
+      "versionNonce": 1102941017,
       "isDeleted": false,
       "boundElements": [
         {
@@ -211,7 +211,7 @@
           "id": "UzwJQxrhV_UWbHAnJuVUa"
         }
       ],
-      "updated": 1774288134032,
+      "updated": 1774419926345,
       "link": null,
       "locked": false,
       "points": [
@@ -520,8 +520,8 @@
       "frameId": null,
       "roundness": null,
       "seed": 429519727,
-      "version": 145,
-      "versionNonce": 49031254,
+      "version": 146,
+      "versionNonce": 30187607,
       "isDeleted": false,
       "boundElements": [
         {
@@ -529,7 +529,7 @@
           "id": "cZ7u9nIl0xA883WwyURrd"
         }
       ],
-      "updated": 1774288134032,
+      "updated": 1774419931247,
       "link": null,
       "locked": false,
       "points": [
@@ -565,8 +565,8 @@
     {
       "id": "sa_read_ack",
       "type": "arrow",
-      "x": 563.89453125,
-      "y": 523.26953125,
+      "x": 563.8984375,
+      "y": 523.3984375,
       "width": 131.62890625,
       "height": 83.5078125,
       "angle": 0,
@@ -581,8 +581,8 @@
       "frameId": null,
       "roundness": null,
       "seed": 268938639,
-      "version": 119,
-      "versionNonce": 260681738,
+      "version": 123,
+      "versionNonce": 390485623,
       "isDeleted": false,
       "boundElements": [
         {
@@ -590,7 +590,7 @@
           "id": "SQYNP9AJmT-qFcQ0LQGVL"
         }
       ],
-      "updated": 1774288134032,
+      "updated": 1774419934713,
       "link": null,
       "locked": false,
       "points": [
@@ -610,13 +610,13 @@
       "lastCommittedPoint": null,
       "startBinding": {
         "elementId": "s_read",
-        "focus": -0.22814324427402513,
-        "gap": 6.299200692969553
+        "focus": -0.2308863031551004,
+        "gap": 6.310810332891273
       },
       "endBinding": {
         "elementId": "s_ack",
-        "focus": -0.22550235372053745,
-        "gap": 14.538009803556728
+        "focus": -0.22458453449590238,
+        "gap": 14.656182095593918
       },
       "startArrowhead": null,
       "endArrowhead": "arrow",
@@ -958,20 +958,20 @@
       "frameId": null,
       "roundness": null,
       "seed": 408869935,
-      "version": 6,
-      "versionNonce": 898132426,
+      "version": 10,
+      "versionNonce": 1641653367,
       "isDeleted": false,
       "boundElements": [],
-      "updated": 1774288134032,
+      "updated": 1774419925058,
       "link": null,
       "locked": false,
-      "text": "bit_cnt==8\naddr match",
+      "text": "bit_cnt==7\naddr match",
       "fontSize": 14,
       "fontFamily": 6,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "sa_addr_ack",
-      "originalText": "bit_cnt==8\naddr match",
+      "originalText": "bit_cnt==7\naddr match",
       "autoResize": true,
       "lineHeight": 1.35,
       "index": "aL"
@@ -1180,20 +1180,20 @@
       "frameId": null,
       "roundness": null,
       "seed": 349023471,
-      "version": 6,
-      "versionNonce": 1345422858,
+      "version": 8,
+      "versionNonce": 300193497,
       "isDeleted": false,
       "boundElements": [],
-      "updated": 1774288134032,
+      "updated": 1774419929791,
       "link": null,
       "locked": false,
-      "text": "bit_cnt==8",
+      "text": "bit_cnt==7",
       "fontSize": 14,
       "fontFamily": 6,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "sa_write_ack",
-      "originalText": "bit_cnt==8",
+      "originalText": "bit_cnt==7",
       "autoResize": true,
       "lineHeight": 1.35,
       "index": "aR"
@@ -1201,8 +1201,8 @@
     {
       "id": "SQYNP9AJmT-qFcQ0LQGVL",
       "type": "text",
-      "x": 453.6452178955078,
-      "y": 506.85078125,
+      "x": 453.6491241455078,
+      "y": 506.9796875,
       "width": 68.19393920898438,
       "height": 18.900000000000002,
       "angle": 0,
@@ -1217,20 +1217,20 @@
       "frameId": null,
       "roundness": null,
       "seed": 797456143,
-      "version": 6,
-      "versionNonce": 706295702,
+      "version": 9,
+      "versionNonce": 2043955897,
       "isDeleted": false,
       "boundElements": [],
-      "updated": 1774288134032,
+      "updated": 1774419933031,
       "link": null,
       "locked": false,
-      "text": "bit_cnt==8",
+      "text": "bit_cnt==7",
       "fontSize": 14,
       "fontFamily": 6,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "sa_read_ack",
-      "originalText": "bit_cnt==8",
+      "originalText": "bit_cnt==7",
       "autoResize": true,
       "lineHeight": 1.35,
       "index": "aS"

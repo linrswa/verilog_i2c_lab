@@ -25,39 +25,15 @@
 
 ### 系統架構
 
-```
-┌──────────────────────────────────────────┐
-│            Frontend (React)              │
-│  ┌───────┬──────────────┬──────────────┐ │
-│  │Sidebar│  React Flow  │ Result Panel │ │
-│  │ Node  │  Canvas      │ Step Results │ │
-│  │Palette│  (vertical)  │ + EEPROM     │ │
-│  ├───────┴──────────────┴──────────────┤ │
-│  │        WaveformPanel (SVG)          │ │
-│  │   SDA/SCL traces + step overlays    │ │
-│  └─────────────────────────────────────┘ │
-└──────────────────┬───────────────────────┘
-                   │ HTTP API (JSON)
-                   ▼
-┌──────────────────────────────────────────┐
-│          Backend (FastAPI)               │
-│   Validate → Queue → Simulate → Parse    │
-└──────────────────┬───────────────────────┘
-                   │ subprocess
-                   ▼
-┌──────────────────────────────────────────┐
-│        Simulation (cocotb 2.0)           │
-│  Protocol Interpreter → I2C Driver       │
-│  Per-step timing capture → waveform sync │
-└──────────────────┬───────────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────┐
-│           RTL (Verilog)                  │
-│   I2C Master + I2C Slave                 │
-│   Open-drain Bus + 256B EEPROM           │
-└──────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="resource/png/architecture-horizontal.png" alt="系統架構" width="800">
+</p>
+
+### 前端介面
+
+<p align="center">
+  <img src="resource/png/frontend_ui.png" alt="前端介面" width="800">
+</p>
 
 ### 技術堆疊
 

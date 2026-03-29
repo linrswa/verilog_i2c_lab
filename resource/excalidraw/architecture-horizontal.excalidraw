@@ -2048,6 +2048,82 @@
       "originalText": "I2C Slave (256Byte EEPROM)",
       "autoResize": true,
       "lineHeight": 1.35
+    },
+    {
+      "id": "tech_bar_bg",
+      "type": "rectangle",
+      "x": 99.1015625,
+      "y": 437.84375,
+      "width": 780.00390625,
+      "height": 50.00025040064102,
+      "angle": 0,
+      "strokeColor": "#c2a44e",
+      "backgroundColor": "#fef9e7",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "tech_bar_group"
+      ],
+      "frameId": null,
+      "index": "at",
+      "roundness": {
+        "type": 3
+      },
+      "seed": 999001,
+      "version": 30,
+      "versionNonce": 1356380550,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "tech_bar_text",
+          "type": "text"
+        }
+      ],
+      "updated": 1774413762912,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "tech_bar_text",
+      "type": "text",
+      "x": 142.48779296875,
+      "y": 452.04382111378203,
+      "width": 693.2314453125,
+      "height": 21.600108173076922,
+      "angle": 0,
+      "strokeColor": "#6b5b3a",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [
+        "tech_bar_group"
+      ],
+      "frameId": null,
+      "index": "au",
+      "roundness": null,
+      "seed": 999003,
+      "version": 32,
+      "versionNonce": 970168518,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1774413762912,
+      "link": null,
+      "locked": false,
+      "text": "Python  |  FastAPI  |  cocotb 2.0  |  Verilator  |  Verilog  |  React  |  TypeScript  |  Vite  |  React Flow",
+      "fontSize": 16.000080128205127,
+      "fontFamily": 6,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "tech_bar_bg",
+      "originalText": "Python  |  FastAPI  |  cocotb 2.0  |  Verilator  |  Verilog  |  React  |  TypeScript  |  Vite  |  React Flow",
+      "autoResize": true,
+      "lineHeight": 1.35
     }
   ],
   "appState": {
